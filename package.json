@@ -1,9 +1,9 @@
 {
-  "name": "typescript-node-express-mongodb-backend",
-  "version": "7.0.0",
+  "name": "game-backend-template",
+  "version": "0.1.0",
   "main": "index.ts",
-  "author": "HADMARINE",
-  "license": "MIT",
+  "author": "HADMARINE <contact@hadmarine.com>",
+  "license": "Apache-2.0",
   "scripts": {
     "start": "npm run build && pm2 start -i 0",
     "dev": "nodemon",
