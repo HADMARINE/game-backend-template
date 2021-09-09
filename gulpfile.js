@@ -3,8 +3,9 @@ const path = require('path');
 const gulp = require('gulp');
 const babel = require('gulp-babel');
 const ts = require('gulp-typescript');
-
+const cmd = require('child_process');
 const tsProject = ts.createProject('tsconfig.json');
+const logger = require('clear-logger').default;
 
 gulp.task('build_pre', (done) => {
   if (fs.existsSync(tsProject.options.outDir)) {
@@ -48,3 +49,21 @@ gulp.task('build_post', (done) => {
 });
 
 gulp.task('build', gulp.series(['build_pre', 'build_main', 'build_post']));
+
+gulp.task('compile', (done) => {
+  const basePath = path.join(process.cwd(), 'src', 'modules');
+  const paths = fs.readdirSync(path.join(basePath));
+  for (const p of paths) {
+    cmd.exec(`cd ${path.join(basePath, p)}; yarn`, (e, stdout, stderr) => {
+      if (stderr.search('Finished') !== -1) {
+        logger.succes(stderr);
+      } else {
+        logger.debug(e, false);
+        logger.debug(stdout, false);
+        logger.debug(`${stderr}`, false);
+        process.exit(1);
+      }
+    });
+  }
+  done();
+});
