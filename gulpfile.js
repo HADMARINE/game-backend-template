@@ -50,20 +50,35 @@ gulp.task('build_post', (done) => {
 
 gulp.task('build', gulp.series(['build_pre', 'build_main', 'build_post']));
 
-gulp.task('compile', (done) => {
+gulp.task('compile', async () => {
   const basePath = path.join(process.cwd(), 'src', 'modules');
   const paths = fs.readdirSync(path.join(basePath));
+
+  const executes = [];
   for (const p of paths) {
-    cmd.exec(`cd ${path.join(basePath, p)}; yarn`, (e, stdout, stderr) => {
-      if (stderr.search('Finished') !== -1) {
-        logger.succes(stderr);
-      } else {
-        logger.debug(e, false);
-        logger.debug(stdout, false);
-        logger.debug(`${stderr}`, false);
-        process.exit(1);
-      }
-    });
+    executes.push(
+      new Promise((res, rej) =>
+        cmd.exec(
+          `${process.platform === 'win32' && `powershell`}; cd ./${path.join(
+            'src',
+            'modules',
+            p,
+          )}; yarn`,
+          (e, stdout, stderr) => {
+            if (stderr.search('Finished') !== -1) {
+              logger.success(stderr);
+              res();
+            } else {
+              logger.debug(e, false);
+              logger.debug(stdout, false);
+              logger.debug(`${stderr}`, false);
+              rej();
+              process.exit(1);
+            }
+          },
+        ),
+      ),
+    );
   }
-  done();
+  await Promise.race(executes);
 });
