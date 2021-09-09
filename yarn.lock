@@ -2862,6 +2862,14 @@ clean-stack@^2.0.0:
   resolved "https://registry.yarnpkg.com/clean-stack/-/clean-stack-2.2.0.tgz#ee8472dbb129e727b31e8a10a427dee9dfe4008b"
   integrity sha512-4diC9HaTE+KRAMWhDhrGOECgWZxoevMc5TlkObMqNSsVU62PYzXZ/SMTjzyGAFF1YusgxGcSWTEXBhp0CPwQ1A==
 
+clear-logger@1.0.6:
+  version "1.0.6"
+  resolved "https://registry.yarnpkg.com/clear-logger/-/clear-logger-1.0.6.tgz#13de76037b2a0585b04024ebccc137d05e3ccbc8"
+  integrity sha512-A2b9sDZI3y3LYtN+yZ2to9uymMGmNO3q6wi6f3i6GXscrfH86fEX1eiKE5fcENkZXQjX2A6t3a8VNy3IeZT+yA==
+  dependencies:
+    chalk "^4.1.0"
+    moment "^2.29.1"
+
 clear-logger@^1.0.5:
   version "1.0.5"
   resolved "https://registry.yarnpkg.com/clear-logger/-/clear-logger-1.0.5.tgz#49480456fe477368b87017d3ab98cea1257a9db5"
