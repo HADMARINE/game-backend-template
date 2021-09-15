@@ -20,7 +20,7 @@
     "@babel/runtime": "^7.14.8",
     "aws-sdk": "^2.953.0",
     "chalk": "^4.1.1",
-    "clear-logger": "1.0.6",
+    "clear-logger": "1.0.7",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
     "cross-env": "^7.0.3",

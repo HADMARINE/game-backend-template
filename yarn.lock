@@ -2862,10 +2862,10 @@ clean-stack@^2.0.0:
   resolved "https://registry.yarnpkg.com/clean-stack/-/clean-stack-2.2.0.tgz#ee8472dbb129e727b31e8a10a427dee9dfe4008b"
   integrity sha512-4diC9HaTE+KRAMWhDhrGOECgWZxoevMc5TlkObMqNSsVU62PYzXZ/SMTjzyGAFF1YusgxGcSWTEXBhp0CPwQ1A==
 
-clear-logger@1.0.6:
-  version "1.0.6"
-  resolved "https://registry.yarnpkg.com/clear-logger/-/clear-logger-1.0.6.tgz#13de76037b2a0585b04024ebccc137d05e3ccbc8"
-  integrity sha512-A2b9sDZI3y3LYtN+yZ2to9uymMGmNO3q6wi6f3i6GXscrfH86fEX1eiKE5fcENkZXQjX2A6t3a8VNy3IeZT+yA==
+clear-logger@1.0.7:
+  version "1.0.7"
+  resolved "https://registry.yarnpkg.com/clear-logger/-/clear-logger-1.0.7.tgz#a35421eef3ba9d5b09546f3baf8998f57ec8a304"
+  integrity sha512-9hO/COl/IrWPTWt00QabloUjTWzDXQxGZ6x5I4gzj6xLcFUr0KFflr5w/Ixvq9bliSmBH2wV4iWVLNWn8xwr1A==
   dependencies:
     chalk "^4.1.0"
     moment "^2.29.1"
