@@ -50,7 +50,7 @@ gulp.task('build_post', (done) => {
 
 gulp.task('build', gulp.series(['build_pre', 'build_main', 'build_post']));
 
-gulp.task('compile', async () => {
+gulp.task('compile', (done) => {
   const basePath = path.join(process.cwd(), 'src', 'modules');
   const paths = fs.readdirSync(path.join(basePath));
 
@@ -65,20 +65,29 @@ gulp.task('compile', async () => {
             p,
           )}; yarn`,
           (e, stdout, stderr) => {
+            console.log(`Dir : ${p}`);
+            const _logger = logger.customName(p);
             if (stderr.search('Finished') !== -1) {
-              logger.success(stderr);
+              _logger.success(stderr);
               res();
             } else {
-              logger.debug(e, false);
-              logger.debug(stdout, false);
-              logger.debug(`${stderr}`, false);
-              rej();
-              process.exit(1);
+              _logger.debug(e, false);
+              _logger.debug(stdout, false);
+              _logger.debug(`${stderr}`, false);
+              rej(stdout);
             }
           },
         ),
       ),
     );
   }
-  await Promise.race(executes);
+
+  Promise.all(executes)
+    .then(() => {
+      done();
+    })
+    .catch((e) => {
+      logger.debug(e);
+      process.exit(1);
+    });
 });
