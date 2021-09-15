@@ -11,7 +11,6 @@ import {
   WrappedRequest,
   DataTypes,
 } from 'express-quick-builder';
-import { AnyVerifier } from 'express-quick-builder/dist/util/DataVerify';
 
 @Controller
 export default class IndexController {
