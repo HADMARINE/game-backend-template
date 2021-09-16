@@ -65,7 +65,6 @@ gulp.task('compile', (done) => {
             p,
           )}; yarn`,
           (e, stdout, stderr) => {
-            console.log(`Dir : ${p}`);
             const _logger = logger.customName(p);
             if (stderr.search('Finished') !== -1) {
               _logger.success(stderr);
