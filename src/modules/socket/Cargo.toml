@@ -13,8 +13,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 tokio = {version="1", features=["full"]}
-portpicker = {version="0.1.1"}
-
+rand = "0.8.4"
 
 [dependencies.neon]
 version = "0.9"

@@ -44,6 +44,7 @@ trait ChannelImpl {
 struct TcpChannel {
     registered_client: Vec<ChannelClient>,
     instance: TcpListener,
+    channel_id:u32,
 }
 
 struct UdpChannel {
@@ -67,6 +68,7 @@ impl QuickSocketInstance {
 
         let tcp_channels: Vec<TcpChannel> = vec![default_tcp_channel];
         let udp_channels: Vec<UdpChannel> = vec![];
+
 
         let socket = TcpUdp {
             tcp: tcp_channels,

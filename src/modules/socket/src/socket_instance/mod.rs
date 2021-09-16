@@ -1,6 +1,12 @@
-use std::net;
+use std::{
+    convert::TryInto,
+    net::{self, TcpListener},
+};
 
+use rand::Rng;
 use tokio::net::{TcpListener, UdpSocket};
+
+use crate::util;
 
 struct TcpUdp<T, U> {
     tcp: T,
@@ -44,11 +50,15 @@ trait ChannelImpl {
 struct TcpChannel {
     registered_client: Vec<ChannelClient>,
     instance: TcpListener,
+    channel_id: i32,
+    port: u16,
 }
 
 struct UdpChannel {
     registered_client: Vec<ChannelClient>,
     instance: UdpSocket,
+    channel_id: i32,
+    port: u16,
 }
 
 impl QuickSocketInstance {
@@ -57,13 +67,12 @@ impl QuickSocketInstance {
 
         let port: u16 = 8080;
         let addr = format!("127.0.0.1:{}", &port);
-        let default_tcp_channel = TcpChannel{
-            instance:  TcpListener::bind(&addr).await?,
-            registered_client: vec![]
-        }
-        
-        
-        // let udp_instance = UdpSocket::bind(&addr).await?;
+        let default_tcp_channel = TcpChannel {
+            instance: TcpListener::bind(&addr).await?,
+            registered_client: vec![],
+            channel_id: 0,
+            port,
+        };
 
         let tcp_channels: Vec<TcpChannel> = vec![default_tcp_channel];
         let udp_channels: Vec<UdpChannel> = vec![];
@@ -85,11 +94,48 @@ impl QuickSocketInstance {
         Ok(instance)
     }
 
-    fn create_udp_channel() -> Result<, Box<dyn std::error::Error>> {}
+    fn get_vacant_port(&self, func: fn(u16) -> bool) -> u16 {
+        for i in self.properties.port_range.start.clone()..self.properties.port_range.end.clone() {
+            if !func(i) {
+                return i;
+            }
+        }
+        0
+    }
 
-    fn delete_udp_channel(ch_num: u32) -> Result<_, Box<dyn std::error::Error>> {}
+    pub async fn create_udp_channel(&self) -> Result<UdpChannel, Box<dyn std::error::Error>> {
+        let rng = rand::thread_rng();
 
-    fn create_tcp_channel() -> Result<u32, Box<dyn std::error::Error>> {}
+        let port = self.get_vacant_port(util::scan_port::udp);
+        let addr = format!("127.0.0.1:{}", &port);
+
+        let channel = UdpChannel {
+            channel_id: self.socket.udp.len().try_into().unwrap(),
+            instance: UdpSocket::bind(addr).await?,
+            registered_client: vec![],
+            port,
+        };
+
+        Ok(channel)
+    }
+
+    pub async fn create_tcp_channel(&self) -> Result<TcpChannel, Box<dyn std::error::Error>> {
+        let rng = rand::thread_rng();
+
+        let port = self.get_vacant_port(util::scan_port::udp);
+        let addr = format!("127.0.0.1:{}", &port);
+
+        let channel = TcpChannel {
+            channel_id: self.socket.udp.len().try_into().unwrap(),
+            instance: TcpListener::bind(addr).await?,
+            registered_client: vec![],
+            port,
+        };
+
+        Ok(channel)
+    }
+
+    pub fn delete_udp_channel(ch_num: u32) -> Result<(), Box<dyn std::error::Error>> {}
 }
 
 fn listen(socket: &net::UdpSocket, mut buffer: &mut [u8]) -> usize {
@@ -99,10 +145,4 @@ fn listen(socket: &net::UdpSocket, mut buffer: &mut [u8]) -> usize {
     println!("{:?}", src_addr);
 
     number_of_bytes
-}
-
-// fn send(socket:&net::)
-
-fn main() {
-    println!("Hello, world!");
 }

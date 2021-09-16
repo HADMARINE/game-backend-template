@@ -1,4 +1,6 @@
 use neon::prelude::*;
+mod socket_instance;
+mod util;
 
 fn hello(mut cx: FunctionContext) -> JsResult<JsString> {
     Ok(cx.string("hello node"))
