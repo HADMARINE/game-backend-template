@@ -1,12 +1,7 @@
-use std::{
-    convert::TryInto,
-    net::{self, TcpListener},
-};
-
-use rand::Rng;
+use std::{convert::TryInto, error::Error, net};
 use tokio::net::{TcpListener, UdpSocket};
-
 use crate::util;
+use crate::error;
 
 struct TcpUdp<T, U> {
     tcp: T,
@@ -34,9 +29,9 @@ struct ChannelClient {
 }
 
 trait ChannelImpl {
-    fn emit_all(self, message: String) -> Result<String, Box<dyn std::error::Error>>;
+    fn emit_all(&self, message: String) -> Result<String, Box<dyn std::error::Error>>;
     fn emit_to<T>(
-        self,
+        &self,
         clients: [ChannelClient],
         message: String,
     ) -> Result<T, Box<dyn std::error::Error>>;
@@ -45,6 +40,13 @@ trait ChannelImpl {
         func: dyn Fn(String) -> Result<T, Box<dyn std::error::Error>>,
     );
     fn destroy_channel() -> Result<(), Box<dyn std::error::Error>>;
+}
+
+struct Channel<T> {
+    registered_client: Vec<ChannelClient>,
+    instance: T,
+    channel_id: i32,
+    port: u16,
 }
 
 struct TcpChannel {
@@ -94,19 +96,27 @@ impl QuickSocketInstance {
         Ok(instance)
     }
 
-    fn get_vacant_port(&self, func: fn(u16) -> bool) -> u16 {
+    fn get_vacant_port(&self, func: fn(u16) -> bool) -> Option<u16> {
         for i in self.properties.port_range.start.clone()..self.properties.port_range.end.clone() {
             if !func(i) {
-                return i;
+                return Some(i);
             }
         }
-        0
+        None
     }
 
     pub async fn create_udp_channel(&self) -> Result<UdpChannel, Box<dyn std::error::Error>> {
         let rng = rand::thread_rng();
 
-        let port = self.get_vacant_port(util::scan_port::udp);
+        let mut port = if let Some(v) =self.get_vacant_port(util::scan_port::udp) {
+            v
+        } else {
+            return Err(Box::new(error::PortNotFoundError));
+        }
+        match self.get_vacant_port(util::scan_port::udp) {
+            Some(v) => v,
+            None => Err(),
+        }
         let addr = format!("127.0.0.1:{}", &port);
 
         let channel = UdpChannel {
@@ -127,7 +137,7 @@ impl QuickSocketInstance {
 
         let channel = TcpChannel {
             channel_id: self.socket.udp.len().try_into().unwrap(),
-            instance: TcpListener::bind(addr).await?,
+            instance: TcpListener::bind(addr).await.unwrap(),
             registered_client: vec![],
             port,
         };

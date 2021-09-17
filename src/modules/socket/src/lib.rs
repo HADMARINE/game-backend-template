@@ -1,4 +1,5 @@
 use neon::prelude::*;
+mod error;
 mod socket_instance;
 mod util;
 
