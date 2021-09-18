@@ -46,6 +46,7 @@ trait ChannelImpl {
         -> Result<(), Box<dyn std::error::Error>>;
     fn disconnect_all(&self) -> Result<(), Box<dyn std::error::Error>>;
     fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>>;
+    fn recieve_from(&self) -> Result<Option<String>, Box<dyn std::error::Error>>;
 }
 
 struct Channel<T> {
@@ -81,6 +82,7 @@ impl QuickSocketInstance {
             channel_id: 0,
             port,
             event_handlers: HashMap::new(),
+            is_destroyed: false,
         };
 
         let tcp_channels: Mutex<Vec<TcpChannel>> = vec![default_tcp_channel];
@@ -127,9 +129,10 @@ impl QuickSocketInstance {
             Some(v) => v,
             None => Err(),
         }
+
         let addr = format!("127.0.0.1:{}", &port);
 
-        let channel = UdpChannel {
+        let mut channel = UdpChannel {
             channel_id: self.socket.udp.len().try_into().unwrap(),
             instance: UdpSocket::bind(addr).await?,
             registered_client: vec![],
@@ -142,20 +145,33 @@ impl QuickSocketInstance {
 
         thread::spawn(async move {
             while !&channel.is_destroyed {
-                let mut buf = [0; 1024];
-                let (size, peer) = channel.instance.recv_from(&buf).await;
-                let buf = &mut buf[..size];
-                for client in &channel.registered_client {}
+                // let mut buf = [0; 1024];
+                // let (size, peer) = channel.instance.recv_from(&buf).await;
+                // let buf = &mut buf[..size];
+                // for client in &channel.registered_client {}
+                handler(&mut channel);
             }
         });
 
         Ok(channel)
     }
 
-    pub async fn create_tcp_channel(&self) -> Result<TcpChannel, Box<dyn std::error::Error>> {
+    pub async fn create_tcp_channel(
+        &self,
+        handler: fn(TcpChannel),
+    ) -> Result<TcpChannel, Box<dyn std::error::Error>> {
         let rng = rand::thread_rng();
 
-        let port = self.get_vacant_port(util::scan_port::udp);
+        let mut port = if let Some(v) = self.get_vacant_port(util::scan_port::udp) {
+            v
+        } else {
+            return Err(Box::new(error::PortNotFoundError));
+        };
+        match self.get_vacant_port(util::scan_port::udp) {
+            Some(v) => v,
+            None => Err(),
+        }
+
         let addr = format!("127.0.0.1:{}", &port);
 
         let channel = TcpChannel {
@@ -164,7 +180,14 @@ impl QuickSocketInstance {
             registered_client: vec![],
             port,
             event_handlers: HashMap::new(),
+            is_destroyed: false,
         };
+
+        thread::spawn(move || {
+            while !&channel.is_destroyed {
+                handler(&mut channel);
+            }
+        });
 
         Ok(channel)
     }
