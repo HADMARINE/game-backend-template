@@ -14,6 +14,7 @@ crate-type = ["cdylib"]
 [dependencies]
 tokio = {version="1", features=["full"]}
 rand = "0.8.4"
+json = "0.12.4"
 
 [dependencies.neon]
 version = "0.9"

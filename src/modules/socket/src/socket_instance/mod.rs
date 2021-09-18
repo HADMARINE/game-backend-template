@@ -1,7 +1,11 @@
-use std::{convert::TryInto, error::Error, net};
-use tokio::net::{TcpListener, UdpSocket};
-use crate::util;
 use crate::error;
+use crate::util;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Mutex;
+use std::thread;
+use std::{convert::TryInto, net};
+use tokio::net::{TcpListener, UdpSocket};
 
 struct TcpUdp<T, U> {
     tcp: T,
@@ -24,8 +28,7 @@ struct QuickSocketInstance {
 
 struct ChannelClient {
     uuid: String,
-    ip: String,
-    port: u16,
+    addr: SocketAddr,
 }
 
 trait ChannelImpl {
@@ -39,29 +42,32 @@ trait ChannelImpl {
         event: String,
         func: dyn Fn(String) -> Result<T, Box<dyn std::error::Error>>,
     );
-    fn destroy_channel() -> Result<(), Box<dyn std::error::Error>>;
+    fn disconnect_certain(&self, client: [ChannelClient])
+        -> Result<(), Box<dyn std::error::Error>>;
+    fn disconnect_all(&self) -> Result<(), Box<dyn std::error::Error>>;
+    fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 struct Channel<T> {
-    registered_client: Vec<ChannelClient>,
-    instance: T,
-    channel_id: i32,
-    port: u16,
+    pub registered_client: Vec<ChannelClient>,
+    pub instance: T,
+    pub channel_id: i32,
+    pub port: u16,
+    event_handlers: HashMap<String, fn(String) -> Result<(), Box<dyn std::error::Error>>>,
+    is_destroyed: bool,
 }
 
-struct TcpChannel {
-    registered_client: Vec<ChannelClient>,
-    instance: TcpListener,
-    channel_id: i32,
-    port: u16,
+impl<T> ChannelImpl for Channel<T> {
+    // pub fn
 }
 
-struct UdpChannel {
-    registered_client: Vec<ChannelClient>,
-    instance: UdpSocket,
-    channel_id: i32,
-    port: u16,
-}
+impl Channel<TcpListener> {}
+
+impl Channel<UdpSocket> {}
+
+type TcpChannel = Channel<TcpListener>;
+
+type UdpChannel = Channel<UdpSocket>;
 
 impl QuickSocketInstance {
     pub async fn new() -> Result<QuickSocketInstance, Box<dyn std::error::Error>> {
@@ -74,10 +80,11 @@ impl QuickSocketInstance {
             registered_client: vec![],
             channel_id: 0,
             port,
+            event_handlers: HashMap::new(),
         };
 
-        let tcp_channels: Vec<TcpChannel> = vec![default_tcp_channel];
-        let udp_channels: Vec<UdpChannel> = vec![];
+        let tcp_channels: Mutex<Vec<TcpChannel>> = vec![default_tcp_channel];
+        let udp_channels: Mutex<Vec<UdpChannel>> = vec![];
 
         let socket = TcpUdp {
             tcp: tcp_channels,
@@ -105,14 +112,17 @@ impl QuickSocketInstance {
         None
     }
 
-    pub async fn create_udp_channel(&self) -> Result<UdpChannel, Box<dyn std::error::Error>> {
+    pub async fn create_udp_channel(
+        &self,
+        handler: fn(UdpChannel),
+    ) -> Result<UdpChannel, Box<dyn std::error::Error>> {
         let rng = rand::thread_rng();
 
-        let mut port = if let Some(v) =self.get_vacant_port(util::scan_port::udp) {
+        let mut port = if let Some(v) = self.get_vacant_port(util::scan_port::udp) {
             v
         } else {
             return Err(Box::new(error::PortNotFoundError));
-        }
+        };
         match self.get_vacant_port(util::scan_port::udp) {
             Some(v) => v,
             None => Err(),
@@ -124,7 +134,20 @@ impl QuickSocketInstance {
             instance: UdpSocket::bind(addr).await?,
             registered_client: vec![],
             port,
+            event_handlers: HashMap::new(),
+            is_destroyed: false,
         };
+
+        // channel.event_handlers.insert("hello".to_string(), || 1);
+
+        thread::spawn(async move {
+            while !&channel.is_destroyed {
+                let mut buf = [0; 1024];
+                let (size, peer) = channel.instance.recv_from(&buf).await;
+                let buf = &mut buf[..size];
+                for client in &channel.registered_client {}
+            }
+        });
 
         Ok(channel)
     }
@@ -140,12 +163,11 @@ impl QuickSocketInstance {
             instance: TcpListener::bind(addr).await.unwrap(),
             registered_client: vec![],
             port,
+            event_handlers: HashMap::new(),
         };
 
         Ok(channel)
     }
-
-    pub fn delete_udp_channel(ch_num: u32) -> Result<(), Box<dyn std::error::Error>> {}
 }
 
 fn listen(socket: &net::UdpSocket, mut buffer: &mut [u8]) -> usize {
