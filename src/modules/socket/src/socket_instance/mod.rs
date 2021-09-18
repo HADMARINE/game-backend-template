@@ -5,7 +5,11 @@ use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::thread;
 use std::{convert::TryInto, net};
+use serde_json::Value;
 use tokio::net::{TcpListener, UdpSocket};
+use tokio_serde::formats::SymmetricalJson;
+use tokio_util::codec::length_delimited;
+use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
 
 struct TcpUdp<T, U> {
     tcp: T,
@@ -46,7 +50,7 @@ trait ChannelImpl {
         -> Result<(), Box<dyn std::error::Error>>;
     fn disconnect_all(&self) -> Result<(), Box<dyn std::error::Error>>;
     fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>>;
-    fn recieve_from(&self) -> Result<Option<String>, Box<dyn std::error::Error>>;
+    fn listen(&self) -> Result<Option<String>, Box<dyn std::error::Error>>;
 }
 
 struct Channel<T> {
@@ -58,8 +62,22 @@ struct Channel<T> {
     is_destroyed: bool,
 }
 
-impl<T> ChannelImpl for Channel<T> {
-    // pub fn
+impl ChannelImpl for Channel<TcpListener> {
+    fn listen(&self) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        async {
+            let (stream, addr) = self.instance.accept().await?;
+            tokio::spawn(async move {
+                let mut length_delimited = FramedRead::new(stream, LengthDelimitedCodec::new());
+
+                let mut deserialized = tokio_serde::SymmetricallyFramed::new(
+                    length_delimited,
+                    SymmetricalJson::<Value>::default(),
+                );
+
+                let data = 
+            })
+        }()
+    }
 }
 
 impl Channel<TcpListener> {}
