@@ -1,14 +1,18 @@
 use crate::error;
 use crate::util;
+use async_trait::async_trait;
+use futures::prelude::*;
+use json::JsonValue;
+use serde_json::Value;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::thread;
 use std::{convert::TryInto, net};
-use serde_json::Value;
+use tokio::net::TcpStream;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio_serde::formats::SymmetricalJson;
-use tokio_util::codec::length_delimited;
 use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
 
 struct TcpUdp<T, U> {
@@ -26,31 +30,53 @@ struct Properties {
 }
 
 struct QuickSocketInstance {
-    socket: TcpUdp<Vec<TcpChannel>, Vec<UdpChannel>>,
+    socket: TcpUdp<Mutex<RefCell<Vec<TcpChannel>>>, Mutex<RefCell<Vec<UdpChannel>>>>,
     properties: Properties,
 }
 
 struct ChannelClient {
-    uuid: String,
+    uid: Option<String>,
     addr: SocketAddr,
+    stream: Option<TcpStream>,
 }
 
+macro_rules! temp_client {
+    ( $( $x:expr ),* ) => {
+        {
+            let mut temp_vec = Vec::new();
+            $(
+                temp_vec.push(ChannelClient{addr:$x,stream:None, uid:None });
+            )*
+            temp_vec
+        }
+    };
+}
+
+#[async_trait]
 trait ChannelImpl {
-    fn emit_all(&self, message: String) -> Result<String, Box<dyn std::error::Error>>;
-    fn emit_to<T>(
+    async fn emit_all(
         &self,
-        clients: [ChannelClient],
-        message: String,
-    ) -> Result<T, Box<dyn std::error::Error>>;
-    fn register_event_handler<T>(
         event: String,
-        func: dyn Fn(String) -> Result<T, Box<dyn std::error::Error>>,
-    );
-    fn disconnect_certain(&self, client: [ChannelClient])
-        -> Result<(), Box<dyn std::error::Error>>;
-    fn disconnect_all(&self) -> Result<(), Box<dyn std::error::Error>>;
-    fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>>;
-    fn listen(&self) -> Result<Option<String>, Box<dyn std::error::Error>>;
+        value: JsonValue,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+    async fn emit_to(
+        &self,
+        clients: Vec<ChannelClient>,
+        event: String,
+        value: JsonValue,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+    async fn register_event_handler(
+        &self,
+        event: String,
+        func: fn(JsonValue) -> Result<(), Box<dyn std::error::Error>>,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+    async fn disconnect_certain(
+        &self,
+        client: Vec<ChannelClient>,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+    async fn disconnect_all(&self) -> Result<(), Box<dyn std::error::Error>>;
+    async fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>>;
+    async fn listen(&self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 struct Channel<T> {
@@ -60,23 +86,138 @@ struct Channel<T> {
     pub port: u16,
     event_handlers: HashMap<String, fn(String) -> Result<(), Box<dyn std::error::Error>>>,
     is_destroyed: bool,
+    is_event_listener_on: bool,
+    glob_instance: &'static QuickSocketInstance,
 }
 
+#[async_trait]
 impl ChannelImpl for Channel<TcpListener> {
-    fn listen(&self) -> Result<Option<String>, Box<dyn std::error::Error>> {
-        async {
-            let (stream, addr) = self.instance.accept().await?;
-            tokio::spawn(async move {
-                let mut length_delimited = FramedRead::new(stream, LengthDelimitedCodec::new());
+    async fn listen(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let (stream, addr) = self.instance.accept().await.unwrap();
 
-                let mut deserialized = tokio_serde::SymmetricallyFramed::new(
-                    length_delimited,
-                    SymmetricalJson::<Value>::default(),
-                );
+        let length_delimited = FramedRead::new(stream, LengthDelimitedCodec::new());
 
-                let data = 
-            })
-        }()
+        let mut deserialized = tokio_serde::SymmetricallyFramed::new(
+            length_delimited,
+            SymmetricalJson::<Value>::default(),
+        );
+
+        tokio::spawn(async move {
+            while let Some(msg) = deserialized.try_next().await.unwrap() {
+                println!("Got : {:?}", msg);
+            }
+        });
+
+        Ok(())
+    }
+
+    async fn emit_all(
+        &self,
+        event: String,
+        value: JsonValue,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for client in &self.registered_client {
+            // client.addr.
+        }
+
+        Ok(())
+    }
+
+    async fn emit_to(
+        &self,
+        clients: Vec<ChannelClient>,
+        event: String,
+        valuee: JsonValue,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        todo!()
+    }
+
+    async fn disconnect_certain(
+        &self,
+        client: Vec<ChannelClient>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        todo!()
+    }
+
+    async fn disconnect_all(&self) -> Result<(), Box<dyn std::error::Error>> {
+        todo!()
+    }
+
+    async fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>> {
+        self.is_destroyed = true;
+        Ok(())
+    }
+
+    async fn register_event_handler(
+        &self,
+        event: String,
+        func: fn(JsonValue) -> Result<(), Box<dyn std::error::Error>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        todo!()
+    }
+}
+
+#[async_trait]
+impl ChannelImpl for Channel<UdpSocket> {
+    async fn listen(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut buf: [u8; 65535] = [0; 65535];
+
+        let (length, addr) = self.instance.recv_from(&mut buf).await?;
+
+        let mut length_delimited = FramedRead::new(stream, LengthDelimitedCodec::new());
+
+        let mut deserialized = tokio_serde::SymmetricallyFramed::new(
+            length_delimited,
+            SymmetricalJson::<Value>::default(),
+        );
+
+        tokio::spawn(async move {
+            while let Some(msg) = deserialized.try_next().await.unwrap() {
+                println!("Got : {:?}", msg);
+            }
+        });
+
+        Ok(())
+    }
+
+    async fn emit_all(
+        &self,
+        event: String,
+        value: JsonValue,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        todo!()
+    }
+
+    async fn emit_to(
+        &self,
+        clients: Vec<ChannelClient>,
+        event: String,
+        value: JsonValue,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        todo!()
+    }
+
+    async fn disconnect_certain(
+        &self,
+        client: Vec<ChannelClient>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        todo!()
+    }
+
+    async fn disconnect_all(&self) -> Result<(), Box<dyn std::error::Error>> {
+        todo!()
+    }
+
+    async fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>> {
+        todo!()
+    }
+
+    async fn register_event_handler(
+        &self,
+        event: String,
+        func: fn(JsonValue) -> Result<(), Box<dyn std::error::Error>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        todo!()
     }
 }
 
@@ -89,7 +230,7 @@ type TcpChannel = Channel<TcpListener>;
 type UdpChannel = Channel<UdpSocket>;
 
 impl QuickSocketInstance {
-    pub async fn new() -> Result<QuickSocketInstance, Box<dyn std::error::Error>> {
+    pub async fn new(&'static mut self) -> Result<QuickSocketInstance, Box<dyn std::error::Error>> {
         use tokio::net::*;
 
         let port: u16 = 8080;
@@ -101,10 +242,13 @@ impl QuickSocketInstance {
             port,
             event_handlers: HashMap::new(),
             is_destroyed: false,
+            glob_instance: self,
+            is_event_listener_on: true,
         };
 
-        let tcp_channels: Mutex<Vec<TcpChannel>> = vec![default_tcp_channel];
-        let udp_channels: Mutex<Vec<UdpChannel>> = vec![];
+        let tcp_channels: Mutex<RefCell<Vec<TcpChannel>>> =
+            Mutex::from(RefCell::new(vec![default_tcp_channel]));
+        let udp_channels: Mutex<RefCell<Vec<UdpChannel>>> = Mutex::from(RefCell::new(vec![]));
 
         let socket = TcpUdp {
             tcp: tcp_channels,
@@ -134,40 +278,63 @@ impl QuickSocketInstance {
 
     pub async fn create_udp_channel(
         &self,
-        handler: fn(UdpChannel),
+        setter: fn(&mut UdpChannel),
     ) -> Result<UdpChannel, Box<dyn std::error::Error>> {
-        let rng = rand::thread_rng();
-
-        let mut port = if let Some(v) = self.get_vacant_port(util::scan_port::udp) {
+        let port = if let Some(v) = self.get_vacant_port(util::scan_port::udp) {
             v
         } else {
-            return Err(Box::new(error::PortNotFoundError));
+            return Err(Box::new(
+                error::predeclared::QuickSocketError::VacantPortSearchFail,
+            ));
         };
-        match self.get_vacant_port(util::scan_port::udp) {
-            Some(v) => v,
-            None => Err(),
-        }
 
         let addr = format!("127.0.0.1:{}", &port);
 
         let mut channel = UdpChannel {
-            channel_id: self.socket.udp.len().try_into().unwrap(),
+            channel_id: self
+                .socket
+                .udp
+                .try_lock()?
+                .borrow()
+                .len()
+                .try_into()
+                .unwrap(),
             instance: UdpSocket::bind(addr).await?,
             registered_client: vec![],
             port,
             event_handlers: HashMap::new(),
             is_destroyed: false,
+            glob_instance: self,
+            is_event_listener_on: true,
         };
 
-        // channel.event_handlers.insert("hello".to_string(), || 1);
+        setter(&mut channel);
 
-        thread::spawn(async move {
+        // channel.event_handlers.insert("hello".to_string(), || 1);
+        match &self.socket.udp.try_lock() {
+            Ok(v) => match v.try_borrow_mut() {
+                Ok(v) => v.push(channel),
+                Err(e) => return Err(Box::from(e)),
+            },
+            Err(e) => return Err(Box::from(e)),
+        };
+
+        tokio::spawn(async move {
             while !&channel.is_destroyed {
-                // let mut buf = [0; 1024];
-                // let (size, peer) = channel.instance.recv_from(&buf).await;
-                // let buf = &mut buf[..size];
-                // for client in &channel.registered_client {}
-                handler(&mut channel);
+                let mut buf: [u8; 65535] = [0; 65535];
+                let (size, peer) = channel.instance.recv_from(&mut buf).await.unwrap();
+                let buf = &mut buf[..size];
+
+                if let Ok(value) = std::str::from_utf8(buf) {
+                    json::parse(value).unwrap();
+                } else {
+                    channel.emit_to(
+                        temp_client!(peer),
+                        String::from("error"),
+                        json::JsonValue::String("".to_string()),
+                    );
+                    return;
+                }
             }
         });
 
@@ -175,35 +342,49 @@ impl QuickSocketInstance {
     }
 
     pub async fn create_tcp_channel(
-        &self,
+        &'static mut self,
         handler: fn(TcpChannel),
     ) -> Result<TcpChannel, Box<dyn std::error::Error>> {
-        let rng = rand::thread_rng();
-
         let mut port = if let Some(v) = self.get_vacant_port(util::scan_port::udp) {
             v
         } else {
-            return Err(Box::new(error::PortNotFoundError));
+            return Err(Box::new(
+                error::predeclared::QuickSocketError::SocketBufferReadFail,
+            ));
         };
-        match self.get_vacant_port(util::scan_port::udp) {
-            Some(v) => v,
-            None => Err(),
-        }
+
+        let port = if let Some(port) = self.get_vacant_port(util::scan_port::udp) {
+            port
+        } else {
+            return Err(Box::new(
+                error::predeclared::QuickSocketError::VacantPortSearchFail,
+            ));
+        };
 
         let addr = format!("127.0.0.1:{}", &port);
 
         let channel = TcpChannel {
-            channel_id: self.socket.udp.len().try_into().unwrap(),
-            instance: TcpListener::bind(addr).await.unwrap(),
+            channel_id: self
+                .socket
+                .udp
+                .try_lock()?
+                .try_borrow()?
+                .len()
+                .try_into()
+                .unwrap(),
+            instance: TcpListener::bind(addr).await?,
             registered_client: vec![],
             port,
             event_handlers: HashMap::new(),
             is_destroyed: false,
+            is_event_listener_on: true,
+            glob_instance: self,
         };
 
-        thread::spawn(move || {
+        tokio::spawn(async move {
             while !&channel.is_destroyed {
-                handler(&mut channel);
+                // channel.instance.accept().handler(&mut channel);
+                channel.instance.accept().await.handler(&mut channel)
             }
         });
 

@@ -19,6 +19,8 @@ serde_json = {version = "1.0.68"}
 tracing = {version = "0.1.28"}
 rand = "0.8.4"
 json = "0.12.4"
+async-trait = {version = "0.1.51"}
+futures = {version = "0.3.17"}
 
 [dependencies.neon]
 version = "0.9"
