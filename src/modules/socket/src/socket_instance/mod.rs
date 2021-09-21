@@ -1,4 +1,5 @@
 use crate::error;
+use crate::error::predeclared::QuickSocketError;
 use crate::util;
 use async_trait::async_trait;
 use futures::prelude::*;
@@ -16,6 +17,8 @@ use tokio::sync::Mutex;
 use tokio_serde::formats::SymmetricalJson;
 use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
 use uuid::Uuid;
+
+mod event;
 
 struct TcpUdp<T, U> {
     tcp: T,
@@ -73,7 +76,7 @@ trait ChannelImpl {
     async fn register_event_handler(
         &self,
         event: String,
-        func: fn(JsonValue) -> Result<(), Box<dyn std::error::Error>>,
+        func: fn(Value) -> Result<(), Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>>;
     async fn disconnect_certain(
         &self,
@@ -89,7 +92,7 @@ struct Channel<T> {
     pub instance: Arc<Mutex<T>>,
     pub channel_id: String,
     pub port: u16,
-    event_handlers: HashMap<String, fn(String) -> Result<(), Box<dyn std::error::Error>>>,
+    event_handlers: HashMap<String, fn(Value) -> Result<(), Box<QuickSocketError>>>,
     is_destroyed: bool,
     is_event_listener_on: bool,
     glob_instance: &'static QuickSocketInstance,
@@ -164,26 +167,26 @@ impl ChannelImpl for Channel<TcpListener> {
 
 #[async_trait]
 impl ChannelImpl for Channel<UdpSocket> {
-    async fn listen(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let mut buf: [u8; 65535] = [0; 65535];
+    // async fn listen(&self) -> Result<(), Box<dyn std::error::Error>> {
+    //     let mut buf: [u8; 65535] = [0; 65535];
 
-        let (length, addr) = self.instance.recv_from(&mut buf).await?;
+    //     let (length, addr) = self.instance.recv_from(&mut buf).await?;
 
-        let mut length_delimited = FramedRead::new(stream, LengthDelimitedCodec::new());
+    //     let mut length_delimited = FramedRead::new(stream, LengthDelimitedCodec::new());
 
-        let mut deserialized = tokio_serde::SymmetricallyFramed::new(
-            length_delimited,
-            SymmetricalJson::<Value>::default(),
-        );
+    //     let mut deserialized = tokio_serde::SymmetricallyFramed::new(
+    //         length_delimited,
+    //         SymmetricalJson::<Value>::default(),
+    //     );
 
-        tokio::spawn(async move {
-            while let Some(msg) = deserialized.try_next().await.unwrap() {
-                println!("Got : {:?}", msg);
-            }
-        });
+    //     tokio::spawn(async move {
+    //         while let Some(msg) = deserialized.try_next().await.unwrap() {
+    //             println!("Got : {:?}", msg);
+    //         }
+    //     });
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     async fn emit_all(
         &self,
@@ -318,14 +321,10 @@ impl QuickSocketInstance {
 
         let channel_id = channel.channel_id.clone();
 
-        // channel.event_handlers.insert("hello".to_string(), || 1);
-        &self
-            .socket
-            .udp
-            .try_lock()?
-            .insert(channel.channel_id.clone(), Arc::new(channel));
-
         let mut mutex = self.socket.udp.lock().await;
+
+        mutex.insert(channel_id.clone(), Arc::new(channel));
+
         let channel = match mutex.get_mut(&channel_id) {
             Some(v) => v.clone(),
             None => {
@@ -335,7 +334,6 @@ impl QuickSocketInstance {
             }
         };
 
-        //mutex.clone().get_mut(&channel_id);
         drop(mutex);
 
         let channel_clone = channel.clone();
@@ -372,17 +370,9 @@ impl QuickSocketInstance {
 
     pub async fn create_tcp_channel(
         &'static mut self,
-        handler: fn(TcpChannel),
+        setter: fn(&mut TcpChannel),
     ) -> Result<Arc<TcpChannel>, Box<dyn std::error::Error>> {
-        let mut port = if let Some(v) = self.get_vacant_port(util::scan_port::udp) {
-            v
-        } else {
-            return Err(Box::new(
-                error::predeclared::QuickSocketError::SocketBufferReadFail,
-            ));
-        };
-
-        let port = if let Some(port) = self.get_vacant_port(util::scan_port::udp) {
+        let port = if let Some(port) = self.get_vacant_port(util::scan_port::tcp) {
             port
         } else {
             return Err(Box::new(
@@ -392,17 +382,10 @@ impl QuickSocketInstance {
 
         let addr = format!("127.0.0.1:{}", &port);
 
-        let channel = TcpChannel {
-            channel_id: self
-                .socket
-                .udp
-                .try_lock()?
-                .try_borrow()?
-                .len()
-                .try_into()
-                .unwrap(),
-            instance: TcpListener::bind(addr).await?,
-            registered_client: vec![],
+        let mut channel = TcpChannel {
+            channel_id: Uuid::new_v4().to_string(),
+            instance: Arc::new(Mutex::from(TcpListener::bind(addr).await?)),
+            registered_client: Arc::new(Mutex::from(vec![])),
             port,
             event_handlers: HashMap::new(),
             is_destroyed: false,
@@ -410,14 +393,101 @@ impl QuickSocketInstance {
             glob_instance: self,
         };
 
-        tokio::spawn(async move {
-            while !&channel.is_destroyed {
-                // channel.instance.accept().handler(&mut channel);
-                channel.instance.accept().await.handler(&mut channel)
-            }
-        });
+        setter(&mut channel);
 
-        Ok(channel)
+        let channel_id = channel.channel_id.clone();
+
+        let mut mutex = self.socket.tcp.lock().await;
+
+        mutex.insert(channel_id.clone(), Arc::new(channel));
+
+        let channel = match mutex.get_mut(&channel_id) {
+            Some(v) => v.clone(),
+            None => {
+                return Err(Box::new(
+                    error::predeclared::QuickSocketError::ChannelInitializeFail,
+                ));
+            }
+        };
+
+        drop(mutex);
+
+        let channel_clone = channel.clone();
+
+        if *&channel.is_event_listener_on {
+            tokio::spawn(async move {
+                while !&channel.is_destroyed {
+                    let (stream, addr) = channel.instance.lock().await.accept().await.unwrap();
+
+                    let length_delimited = FramedRead::new(stream, LengthDelimitedCodec::new());
+
+                    let mut deserialized = tokio_serde::SymmetricallyFramed::new(
+                        length_delimited,
+                        SymmetricalJson::<Value>::default(),
+                    );
+
+                    tokio::spawn(async move {
+                        // while let Some(msg) = deserialized.try_next().await.unwrap() {
+                        //     match json::parse(msg) {
+                        //         Ok(v) => {}
+                        //         Err(v) => channel.emit_to(
+                        //             temp_client!(addr),
+                        //             String::from("error"),
+                        //             error::predeclared::QuickSocketError::JsonParseFail.jsonify(),
+                        //         ),
+                        //     };
+                        // }
+
+                        // let next = match deserial
+
+                        while let Some(msg) = match deserialized.try_next().await {
+                            Ok(v) => v,
+                            Err(e) => {
+                                channel.emit_to(
+                                    temp_client!(addr),
+                                    String::from("error"),
+                                    error::predeclared::QuickSocketError::JsonParseFail.jsonify(),
+                                );
+                                None
+                            }
+                        } {
+                            let event = &msg["event"];
+                            let data = &msg["data"];
+                            if !event.is_string() || data.is_null() {
+                                channel.emit_to(
+                                    temp_client!(addr),
+                                    String::from("error"),
+                                    error::predeclared::QuickSocketError::JsonFormatInvalid
+                                        .jsonify(),
+                                );
+                                return;
+                            }
+
+                            let event_handler = match channel.event_handlers.get(&event.to_string())
+                            {
+                                Some(v) => v,
+                                None => {
+                                    channel.emit_to(
+                                        temp_client!(addr),
+                                        String::from("error"),
+                                        error::predeclared::QuickSocketError::EventNotFound
+                                            .jsonify(),
+                                    );
+                                    return;
+                                }
+                            };
+
+                            match event_handler(msg["data"].to_owned()) {
+                                Ok(_) => ,
+                                Err(e) => channel.emit_to(temp_client!(addr), String::from("error"), e.jsonify())
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
+        Ok(channel_clone)
     }
 }
 

@@ -12,6 +12,10 @@ pub enum QuickSocketError {
     SocketBufferReadFail,
     VacantPortSearchFail,
     ChannelInitializeFail,
+    JsonParseFail,
+    JsonFormatInvalid,
+    EventNotFound,
+    Undefined(String, String),
 }
 
 impl QuickSocketError {
@@ -37,6 +41,19 @@ impl QuickSocketError {
                 code: String::from("CHANNEL_INITIALIZE_FAIL"),
                 message: String::from("Failed to initialize channel"),
             },
+            QuickSocketError::JsonParseFail => ErrorDetails {
+                code: String::from("JSON_PARSE_FAIL"),
+                message: String::from("Failed to parse json"),
+            },
+            QuickSocketError::JsonFormatInvalid => ErrorDetails {
+                code: String::from("JSON_FORMAT_INVALID"),
+                message: String::from("JSON format is invalid. Did you forgot to send event?"),
+            },
+            QuickSocketError::EventNotFound => ErrorDetails {
+                code: String::from("EVENT_NOT_FOUND"),
+                message: String::from("Event not found"),
+            },
+            QuickSocketError::Undefined(code, message) => ErrorDetails { code, message },
         }
     }
 }
