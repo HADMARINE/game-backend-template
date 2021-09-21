@@ -11,6 +11,7 @@ pub struct ErrorDetails {
 pub enum QuickSocketError {
     SocketBufferReadFail,
     VacantPortSearchFail,
+    ChannelInitializeFail,
 }
 
 impl QuickSocketError {
@@ -31,6 +32,10 @@ impl QuickSocketError {
             QuickSocketError::VacantPortSearchFail => ErrorDetails {
                 code: String::from("VACANT_PORT_SEARCH_FAIL"),
                 message: String::from("Failed to find vacant port"),
+            },
+            QuickSocketError::ChannelInitializeFail => ErrorDetails {
+                code: String::from("CHANNEL_INITIALIZE_FAIL"),
+                message: String::from("Failed to initialize channel"),
             },
         }
     }
