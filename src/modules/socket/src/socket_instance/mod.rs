@@ -7,13 +7,15 @@ use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Mutex;
+use std::sync::Arc;
 use std::thread;
 use std::{convert::TryInto, net};
 use tokio::net::TcpStream;
 use tokio::net::{TcpListener, UdpSocket};
+use tokio::sync::Mutex;
 use tokio_serde::formats::SymmetricalJson;
 use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
+use uuid::Uuid;
 
 struct TcpUdp<T, U> {
     tcp: T,
@@ -30,7 +32,10 @@ struct Properties {
 }
 
 struct QuickSocketInstance {
-    socket: TcpUdp<Mutex<RefCell<Vec<TcpChannel>>>, Mutex<RefCell<Vec<UdpChannel>>>>,
+    socket: TcpUdp<
+        Arc<Mutex<HashMap<String, Arc<TcpChannel>>>>,
+        Arc<Mutex<HashMap<String, Arc<UdpChannel>>>>,
+    >,
     properties: Properties,
 }
 
@@ -80,8 +85,8 @@ trait ChannelImpl {
 }
 
 struct Channel<T> {
-    pub registered_client: Vec<ChannelClient>,
-    pub instance: T,
+    pub registered_client: Arc<Mutex<Vec<ChannelClient>>>,
+    pub instance: Arc<Mutex<T>>,
     pub channel_id: i32,
     pub port: u16,
     event_handlers: HashMap<String, fn(String) -> Result<(), Box<dyn std::error::Error>>>,
@@ -246,8 +251,8 @@ impl QuickSocketInstance {
             is_event_listener_on: true,
         };
 
-        let tcp_channels: Mutex<RefCell<Vec<TcpChannel>>> =
-            Mutex::from(RefCell::new(vec![default_tcp_channel]));
+        let tcp_channels: Mutex<RefCell<HashMap<String, TcpChannel>>> =
+            Mutex::from(RefCell::new(HashMap::new()));
         let udp_channels: Mutex<RefCell<Vec<UdpChannel>>> = Mutex::from(RefCell::new(vec![]));
 
         let socket = TcpUdp {
@@ -277,7 +282,7 @@ impl QuickSocketInstance {
     }
 
     pub async fn create_udp_channel(
-        &self,
+        &'static self,
         setter: fn(&mut UdpChannel),
     ) -> Result<UdpChannel, Box<dyn std::error::Error>> {
         let port = if let Some(v) = self.get_vacant_port(util::scan_port::udp) {
@@ -311,13 +316,7 @@ impl QuickSocketInstance {
         setter(&mut channel);
 
         // channel.event_handlers.insert("hello".to_string(), || 1);
-        match &self.socket.udp.try_lock() {
-            Ok(v) => match v.try_borrow_mut() {
-                Ok(v) => v.push(channel),
-                Err(e) => return Err(Box::from(e)),
-            },
-            Err(e) => return Err(Box::from(e)),
-        };
+        &self.socket.udp.try_lock()?.try_borrow_mut()?.push(channel);
 
         tokio::spawn(async move {
             while !&channel.is_destroyed {

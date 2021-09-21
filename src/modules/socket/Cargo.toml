@@ -21,6 +21,7 @@ rand = "0.8.4"
 json = "0.12.4"
 async-trait = {version = "0.1.51"}
 futures = {version = "0.3.17"}
+uuid = {version = "0.8.2", features = ["v4","v5"]}
 
 [dependencies.neon]
 version = "0.9"
