@@ -1527,10 +1527,10 @@
   resolved "https://registry.yarnpkg.com/@types/dateformat/-/dateformat-3.0.1.tgz#98d747a2e5e9a56070c6bf14e27bff56204e34cc"
   integrity sha512-KlPPdikagvL6ELjWsljbyDIPzNCeliYkqRpI+zea99vBBbCIA5JNshZAwQKTON139c87y9qvTFVgkFd14rtS4g==
 
-"@types/deasync@^0.1.1":
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/@types/deasync/-/deasync-0.1.1.tgz#69ca6999a2e40e329599da9f093b67e3e6cc0833"
-  integrity sha512-/AsDEUsHjyzMX0UjPgysggxFO8r7//c4aS9aeQwHzgs5POBsqaBFWW9+KYFGUyx/VYT4HrT/+JzAGTEEL2d4OQ==
+"@types/deasync@^0.1.2":
+  version "0.1.2"
+  resolved "https://registry.yarnpkg.com/@types/deasync/-/deasync-0.1.2.tgz#a64b68d6ebc145d0a5fe004a53e8e0f4e6d2ec7e"
+  integrity sha512-sCBFlGCEmZMPS06wdnQELcYzyUYio2K1Hp6g0fjJSKP1jkGKQpIdjRNUQAvdSCCJCWxIMCkX2CL7pi4BCm8Ydg==
 
 "@types/express-fileupload@^1.1.7":
   version "1.1.7"
