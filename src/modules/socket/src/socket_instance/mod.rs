@@ -18,6 +18,8 @@ use tokio_serde::formats::SymmetricalJson;
 use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
 use uuid::Uuid;
 
+use self::event::ResponseEvent;
+
 mod event;
 
 struct TcpUdp<T, U> {
@@ -64,19 +66,19 @@ macro_rules! temp_client {
 trait ChannelImpl {
     async fn emit_all(
         &self,
-        event: String,
+        event: ResponseEvent,
         value: JsonValue,
     ) -> Result<(), Box<dyn std::error::Error>>;
     async fn emit_to(
         &self,
         clients: Vec<ChannelClient>,
-        event: String,
+        event: ResponseEvent,
         value: JsonValue,
     ) -> Result<(), Box<dyn std::error::Error>>;
     async fn register_event_handler(
         &self,
         event: String,
-        func: fn(Value) -> Result<(), Box<QuickSocketError>>,
+        func: fn(JsonValue) -> Result<(), Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>>;
     async fn disconnect_certain(
         &self,
@@ -84,7 +86,6 @@ trait ChannelImpl {
     ) -> Result<(), Box<dyn std::error::Error>>;
     async fn disconnect_all(&self) -> Result<(), Box<dyn std::error::Error>>;
     async fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>>;
-    async fn listen(&self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 struct Channel<T> {
@@ -92,7 +93,8 @@ struct Channel<T> {
     pub instance: Arc<Mutex<T>>,
     pub channel_id: String,
     pub port: u16,
-    event_handlers: HashMap<String, fn(Value) -> Result<(), Box<QuickSocketError>>>,
+    event_handlers:
+        HashMap<String, fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>>,
     is_destroyed: bool,
     is_event_listener_on: bool,
     glob_instance: &'static QuickSocketInstance,
@@ -100,41 +102,42 @@ struct Channel<T> {
 
 #[async_trait]
 impl ChannelImpl for Channel<TcpListener> {
-    async fn listen(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let (stream, addr) = self.instance.accept().await.unwrap();
+    // async fn listen(&self) -> Result<(), Box<dyn std::error::Error>> {
+    //     let (stream, addr) = self.instance.accept().await.unwrap();
 
-        let length_delimited = FramedRead::new(stream, LengthDelimitedCodec::new());
+    //     let length_delimited = FramedRead::new(stream, LengthDelimitedCodec::new());
 
-        let mut deserialized = tokio_serde::SymmetricallyFramed::new(
-            length_delimited,
-            SymmetricalJson::<Value>::default(),
-        );
+    //     let mut deserialized = tokio_serde::SymmetricallyFramed::new(
+    //         length_delimited,
+    //         SymmetricalJson::<Value>::default(),
+    //     );
 
-        tokio::spawn(async move {
-            while let Some(msg) = deserialized.try_next().await.unwrap() {
-                println!("Got : {:?}", msg);
-            }
-        });
+    //     tokio::spawn(async move {
+    //         while let Some(msg) = deserialized.try_next().await.unwrap() {
+    //             println!("Got : {:?}", msg);
+    //         }
+    //     });
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     async fn emit_all(
         &self,
-        event: String,
+        event: ResponseEvent,
         value: JsonValue,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        for client in &self.registered_client {
-            // client.addr.
-        }
+        todo!()
+        // for client in &self.registered_client {
+        //     // client.addr.
+        // }
 
-        Ok(())
+        // Ok(())
     }
 
     async fn emit_to(
         &self,
         clients: Vec<ChannelClient>,
-        event: String,
+        event: ResponseEvent,
         valuee: JsonValue,
     ) -> Result<(), Box<dyn std::error::Error>> {
         todo!()
@@ -159,7 +162,7 @@ impl ChannelImpl for Channel<TcpListener> {
     async fn register_event_handler(
         &self,
         event: String,
-        func: fn(JsonValue) -> Result<(), Box<dyn std::error::Error>>,
+        func: fn(JsonValue) -> Result<(), Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         todo!()
     }
@@ -190,7 +193,7 @@ impl ChannelImpl for Channel<UdpSocket> {
 
     async fn emit_all(
         &self,
-        event: String,
+        event: ResponseEvent,
         value: JsonValue,
     ) -> Result<(), Box<dyn std::error::Error>> {
         todo!()
@@ -199,7 +202,7 @@ impl ChannelImpl for Channel<UdpSocket> {
     async fn emit_to(
         &self,
         clients: Vec<ChannelClient>,
-        event: String,
+        event: ResponseEvent,
         value: JsonValue,
     ) -> Result<(), Box<dyn std::error::Error>> {
         todo!()
@@ -342,25 +345,87 @@ impl QuickSocketInstance {
             tokio::spawn(async move {
                 while !&channel.is_destroyed {
                     let mut buf: [u8; 65535] = [0; 65535];
-                    let (size, peer) = channel
+                    let (size, addr) = channel
                         .instance
                         .lock()
                         .await
                         .recv_from(&mut buf)
                         .await
                         .unwrap();
-                    let buf = &mut buf[..size];
 
-                    if let Ok(value) = std::str::from_utf8(buf) {
-                        json::parse(value).unwrap();
-                    } else {
-                        channel.emit_to(
-                            temp_client!(peer),
-                            String::from("error"),
-                            json::JsonValue::String("".to_string()),
-                        );
-                        return;
-                    }
+                    let channel_closure_clone = channel.clone();
+
+                    tokio::spawn(async move {
+                        let buf = &mut buf[..size];
+                        let channel = channel_closure_clone;
+
+                        if let Ok(value) = std::str::from_utf8(buf) {
+                            let msg = match json::parse(value) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    channel.emit_to(
+                                        temp_client!(addr),
+                                        ResponseEvent::Error,
+                                        QuickSocketError::JsonParseFail.jsonify(),
+                                    );
+                                    return;
+                                }
+                            };
+
+                            let event = &msg["event"];
+                            let data = &msg["data"];
+
+                            if !event.is_string() {
+                                channel.emit_to(
+                                    temp_client!(addr),
+                                    ResponseEvent::Error,
+                                    QuickSocketError::JsonFormatInvalid.jsonify(),
+                                );
+                                return;
+                            }
+
+                            let event_handler = match channel.event_handlers.get(&event.to_string())
+                            {
+                                Some(v) => v,
+                                None => {
+                                    channel.emit_to(
+                                        temp_client!(addr),
+                                        ResponseEvent::Error,
+                                        QuickSocketError::EventNotFound.jsonify(),
+                                    );
+                                    return;
+                                }
+                            };
+
+                            match event_handler(msg["data"].to_owned()) {
+                                Ok(v) => {
+                                    if let Some(value) = v {
+                                        channel.emit_to(
+                                            temp_client!(addr),
+                                            ResponseEvent::Ok,
+                                            value,
+                                        );
+                                    };
+                                    ()
+                                }
+                                Err(e) => {
+                                    channel.emit_to(
+                                        temp_client!(addr),
+                                        ResponseEvent::Error,
+                                        e.jsonify(),
+                                    );
+                                    ()
+                                }
+                            }
+                        } else {
+                            channel.emit_to(
+                                temp_client!(addr),
+                                ResponseEvent::Error,
+                                QuickSocketError::InternalServerError.jsonify(),
+                            );
+                            return;
+                        }
+                    });
                 }
             });
         }
@@ -404,9 +469,7 @@ impl QuickSocketInstance {
         let channel = match mutex.get_mut(&channel_id) {
             Some(v) => v.clone(),
             None => {
-                return Err(Box::new(
-                    error::predeclared::QuickSocketError::ChannelInitializeFail,
-                ));
+                return Err(Box::new(QuickSocketError::ChannelInitializeFail));
             }
         };
 
@@ -426,39 +489,29 @@ impl QuickSocketInstance {
                         SymmetricalJson::<Value>::default(),
                     );
 
-                    tokio::spawn(async move {
-                        // while let Some(msg) = deserialized.try_next().await.unwrap() {
-                        //     match json::parse(msg) {
-                        //         Ok(v) => {}
-                        //         Err(v) => channel.emit_to(
-                        //             temp_client!(addr),
-                        //             String::from("error"),
-                        //             error::predeclared::QuickSocketError::JsonParseFail.jsonify(),
-                        //         ),
-                        //     };
-                        // }
+                    let channel_closure_clone = channel.clone();
 
-                        // let next = match deserial
+                    tokio::spawn(async move {
+                        let channel = channel_closure_clone;
 
                         while let Some(msg) = match deserialized.try_next().await {
                             Ok(v) => v,
                             Err(e) => {
                                 channel.emit_to(
                                     temp_client!(addr),
-                                    String::from("error"),
-                                    error::predeclared::QuickSocketError::JsonParseFail.jsonify(),
+                                    ResponseEvent::Error,
+                                    QuickSocketError::JsonParseFail.jsonify(),
                                 );
                                 None
                             }
                         } {
                             let event = &msg["event"];
                             let data = &msg["data"];
-                            if !event.is_string() || data.is_null() {
+                            if !event.is_string() {
                                 channel.emit_to(
                                     temp_client!(addr),
-                                    String::from("error"),
-                                    error::predeclared::QuickSocketError::JsonFormatInvalid
-                                        .jsonify(),
+                                    ResponseEvent::Error,
+                                    QuickSocketError::JsonFormatInvalid.jsonify(),
                                 );
                                 return;
                             }
@@ -469,17 +522,32 @@ impl QuickSocketInstance {
                                 None => {
                                     channel.emit_to(
                                         temp_client!(addr),
-                                        String::from("error"),
-                                        error::predeclared::QuickSocketError::EventNotFound
-                                            .jsonify(),
+                                        ResponseEvent::Error,
+                                        QuickSocketError::EventNotFound.jsonify(),
                                     );
                                     return;
                                 }
                             };
 
                             match event_handler(msg["data"].to_owned()) {
-                                Ok(_) => ,
-                                Err(e) => channel.emit_to(temp_client!(addr), String::from("error"), e.jsonify())
+                                Ok(v) => {
+                                    if let Some(value) = v {
+                                        channel.emit_to(
+                                            temp_client!(addr),
+                                            ResponseEvent::Ok,
+                                            value,
+                                        );
+                                    }
+                                    ()
+                                }
+                                Err(e) => {
+                                    channel.emit_to(
+                                        temp_client!(addr),
+                                        ResponseEvent::Error,
+                                        e.jsonify(),
+                                    );
+                                    ()
+                                }
                             }
                         }
                     });
@@ -491,11 +559,11 @@ impl QuickSocketInstance {
     }
 }
 
-fn listen(socket: &net::UdpSocket, mut buffer: &mut [u8]) -> usize {
-    let (number_of_bytes, src_addr) = socket.recv_from(&mut buffer).expect("No data recieved");
+// fn listen(socket: &net::UdpSocket, mut buffer: &mut [u8]) -> usize {
+//     let (number_of_bytes, src_addr) = socket.recv_from(&mut buffer).expect("No data recieved");
 
-    println!("{:?}", number_of_bytes);
-    println!("{:?}", src_addr);
+//     println!("{:?}", number_of_bytes);
+//     println!("{:?}", src_addr);
 
-    number_of_bytes
-}
+//     number_of_bytes
+// }

@@ -15,7 +15,9 @@ pub enum QuickSocketError {
     JsonParseFail,
     JsonFormatInvalid,
     EventNotFound,
-    Undefined(String, String),
+    InternalServerError,
+    Undefined(String),
+    Custom(String, String),
 }
 
 impl QuickSocketError {
@@ -53,7 +55,15 @@ impl QuickSocketError {
                 code: String::from("EVENT_NOT_FOUND"),
                 message: String::from("Event not found"),
             },
-            QuickSocketError::Undefined(code, message) => ErrorDetails { code, message },
+            QuickSocketError::InternalServerError => ErrorDetails {
+                code: String::from("INTERNAL_SERVER_ERROR"),
+                message: String::from("Internal server error"),
+            },
+            QuickSocketError::Undefined(message) => ErrorDetails {
+                code: String::from("UNDEFINED"),
+                message,
+            },
+            QuickSocketError::Custom(code, message) => ErrorDetails { code, message },
         }
     }
 }

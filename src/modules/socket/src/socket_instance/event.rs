@@ -1,9 +1,10 @@
-pub enum Event {
+pub enum ResponseEvent {
     Error,
-    Refer,
+    Redirect,
     Execute,
     Terminate,
-
+    Ok,
+    Data,
 }
 
 macro_rules! strm {
@@ -13,12 +14,15 @@ macro_rules! strm {
     }};
 }
 
-impl Event {
+impl ResponseEvent {
     pub fn to_string(&self) -> String {
-        todo!()
         match *self {
-            Event::Error => strm!("error"),
-            Event::Refer => strm!("refer"),
+            ResponseEvent::Error => strm!("error"),
+            ResponseEvent::Redirect => strm!("redirect"),
+            ResponseEvent::Execute => strm!("execute"),
+            ResponseEvent::Terminate => strm!("terminate"),
+            ResponseEvent::Ok => strm!("ok"),
+            ResponseEvent::Data => strm!("data"),
         }
     }
 }
