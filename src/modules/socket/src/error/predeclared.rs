@@ -2,6 +2,7 @@ use std::fmt;
 
 use json::{object, JsonValue};
 
+#[derive(Debug, Clone)]
 pub struct ErrorDetails {
     code: String,
     message: String,
@@ -16,6 +17,7 @@ pub enum QuickSocketError {
     JsonFormatInvalid,
     EventNotFound,
     InternalServerError,
+    InstanceInitializeInvalid,
     Undefined(String),
     Custom(String, String),
 }
@@ -29,8 +31,12 @@ impl QuickSocketError {
         }
     }
 
+    pub fn to_box(&'static self) -> Box<dyn std::error::Error> {
+        Box::new(self.clone())
+    }
+
     pub fn details(&self) -> ErrorDetails {
-        match *self {
+        match &*self {
             QuickSocketError::SocketBufferReadFail => ErrorDetails {
                 code: String::from("SOCKET_BUFFER_READ_FAIL"),
                 message: String::from("Failed to read buffer from socket"),
@@ -59,11 +65,18 @@ impl QuickSocketError {
                 code: String::from("INTERNAL_SERVER_ERROR"),
                 message: String::from("Internal server error"),
             },
+            QuickSocketError::InstanceInitializeInvalid => ErrorDetails {
+                code: String::from("INSTANCE_INITIALIZE_INVALID"),
+                message: String::from("Instance initialize invalid."),
+            },
             QuickSocketError::Undefined(message) => ErrorDetails {
                 code: String::from("UNDEFINED"),
-                message,
+                message: message.clone(),
             },
-            QuickSocketError::Custom(code, message) => ErrorDetails { code, message },
+            QuickSocketError::Custom(code, message) => ErrorDetails {
+                code: code.clone(),
+                message: message.clone(),
+            },
         }
     }
 }

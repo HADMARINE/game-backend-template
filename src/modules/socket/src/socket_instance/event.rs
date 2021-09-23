@@ -9,7 +9,7 @@ pub enum ResponseEvent {
 
 macro_rules! strm {
     ($x:expr) => {{
-        let mut s = String::from($x);
+        let s = String::from($x);
         s
     }};
 }
