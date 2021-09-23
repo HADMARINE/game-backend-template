@@ -1,6 +1,7 @@
 use crate::error::predeclared::QuickSocketError;
 use crate::util;
 use json::{object, JsonValue};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net;
@@ -37,6 +38,7 @@ pub struct QuickSocketInstance {
         Arc<Mutex<HashMap<String, Arc<UdpChannel>>>>,
     >,
     pub properties: Properties,
+    pub self_instance: Option<Arc<Mutex<QuickSocketInstance>>>,
 }
 
 pub struct ChannelClient {
@@ -91,7 +93,7 @@ pub struct Channel<T> {
         HashMap<String, fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>>,
     is_destroyed: bool,
     is_event_listener_on: bool,
-    glob_instance: &'static QuickSocketInstance,
+    glob_instance: Arc<Mutex<QuickSocketInstance>>,
 }
 
 impl ChannelImpl for Channel<TcpListener> {
@@ -134,7 +136,7 @@ impl ChannelImpl for Channel<TcpListener> {
         event: ResponseEvent,
         valuee: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        todo!()
+        Ok(())
     }
 
     fn register_event_handler(
@@ -142,22 +144,22 @@ impl ChannelImpl for Channel<TcpListener> {
         event: String,
         func: fn(JsonValue) -> Result<(), Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        todo!()
+        Ok(())
     }
 
     fn disconnect_certain(
         &self,
         client: Vec<ChannelClient>,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        todo!()
+        Ok(())
     }
 
     fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        todo!()
+        Ok(())
     }
 
     fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>> {
-        todo!()
+        Ok(())
     }
 }
 
@@ -212,8 +214,8 @@ pub type TcpChannel = Channel<TcpListener>;
 pub type UdpChannel = Channel<UdpSocket>;
 
 impl QuickSocketInstance {
-    pub fn new() -> &'static mut Self {
-        let port: u16 = 8080;
+    pub fn new() -> Arc<Mutex<Self>> {
+        // let port: u16 = 8080;
         // let addr = format!("127.0.0.1:{}", &port);
 
         let tcp_channels: Arc<Mutex<HashMap<String, Arc<TcpChannel>>>> =
@@ -233,7 +235,7 @@ impl QuickSocketInstance {
             },
         };
 
-        let instance = Box::leak::<'static>(Box::new(QuickSocketInstance { socket, properties }));
+        let instance = QuickSocketInstance { socket, properties, self_instance: None };
 
         // let default_tcp_channel = TcpChannel {
         //     instance: Arc::new(Mutex::from(TcpListener::bind(&addr).unwrap())),
@@ -256,7 +258,13 @@ impl QuickSocketInstance {
         //     Arc::new(default_tcp_channel),
         // );
 
-        instance
+        let instance_arced = Arc::new(Mutex::from(instance));
+
+        let locked = instance_arced.lock().unwrap();
+
+        locked.self_instance = Some(instance_arced.clone());
+
+        instance_arced
     }
 
     fn get_vacant_port(&self, func: fn(u16) -> bool) -> Option<u16> {
@@ -269,7 +277,7 @@ impl QuickSocketInstance {
     }
 
     pub fn create_udp_channel(
-        &'static self,
+        &self,
         setter: fn(&mut UdpChannel),
     ) -> Result<Arc<UdpChannel>, Box<dyn std::error::Error>> {
         let port = if let Some(v) = self.get_vacant_port(util::scan_port::udp) {
@@ -287,7 +295,7 @@ impl QuickSocketInstance {
             port,
             event_handlers: HashMap::new(),
             is_destroyed: false,
-            glob_instance: self,
+            glob_instance: self.self_instance?.clone(),
             is_event_listener_on: true,
         };
 
@@ -405,7 +413,7 @@ impl QuickSocketInstance {
     }
 
     pub fn create_tcp_channel(
-        &'static mut self,
+        &self,
         setter: fn(&mut TcpChannel),
     ) -> Result<Arc<TcpChannel>, Box<dyn std::error::Error>> {
         let port = if let Some(port) = self.get_vacant_port(util::scan_port::tcp) {
@@ -424,7 +432,12 @@ impl QuickSocketInstance {
             event_handlers: HashMap::new(),
             is_destroyed: false,
             is_event_listener_on: true,
-            glob_instance: self,
+            glob_instance: match self.self_instance {
+                Some(v) => v,
+                None => {
+                    return Err(QuickSocketError::InstanceInitializeInvalid.to_box());
+                }
+            }.clone(),
         };
 
         setter(&mut channel);
@@ -448,8 +461,10 @@ impl QuickSocketInstance {
 
         if *&channel.is_event_listener_on {
             thread::spawn(move || {
+                println!("TCP Thread spawned!");
                 while !&channel.is_destroyed {
-                    let instance_accepted =
+                println!("TCP While loop going");
+                let instance_accepted =
                         || -> Result<(TcpStream, SocketAddr), Box<dyn std::error::Error>> {
                             Ok(channel.instance.lock()?.accept()?)
                         }();
@@ -477,6 +492,9 @@ impl QuickSocketInstance {
                                 return;
                             }
                         };
+
+                        println!("TCP data accepted: {}", &str_buf);
+
 
                         let msg = match json::parse(str_buf.as_str()) {
                             Ok(v) => v,

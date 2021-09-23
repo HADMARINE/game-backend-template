@@ -9,6 +9,7 @@ fn main() {
     let instance = QuickSocketInstance::new();
     println!("INSTANCE INITIALIZED");
     let channel_1 = instance.create_tcp_channel(|v| {});
+    let channel_2 = instance.create_tcp_channel(|v| {});
 
     loop {}
 }
