@@ -235,7 +235,11 @@ impl QuickSocketInstance {
             },
         };
 
-        let instance = QuickSocketInstance { socket, properties, self_instance: None };
+        let instance = QuickSocketInstance {
+            socket,
+            properties,
+            self_instance: None,
+        };
 
         // let default_tcp_channel = TcpChannel {
         //     instance: Arc::new(Mutex::from(TcpListener::bind(&addr).unwrap())),
@@ -260,11 +264,13 @@ impl QuickSocketInstance {
 
         let instance_arced = Arc::new(Mutex::from(instance));
 
-        let locked = instance_arced.lock().unwrap();
+        let locked = &mut instance_arced.lock().unwrap();
 
         locked.self_instance = Some(instance_arced.clone());
 
-        instance_arced
+        drop(locked);
+
+        instance_arced.clone()
     }
 
     fn get_vacant_port(&self, func: fn(u16) -> bool) -> Option<u16> {
@@ -295,7 +301,11 @@ impl QuickSocketInstance {
             port,
             event_handlers: HashMap::new(),
             is_destroyed: false,
-            glob_instance: self.self_instance?.clone(),
+            glob_instance: match self.self_instance.clone() {
+                Some(v) => v,
+                None => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+            }
+            .clone(),
             is_event_listener_on: true,
         };
 
@@ -303,7 +313,10 @@ impl QuickSocketInstance {
 
         let channel_id = channel.channel_id.clone();
 
-        let mut mutex = self.socket.udp.lock()?;
+        let mut mutex = match self.socket.udp.lock() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
 
         mutex.insert(channel_id.clone(), Arc::new(channel));
 
@@ -432,19 +445,42 @@ impl QuickSocketInstance {
             event_handlers: HashMap::new(),
             is_destroyed: false,
             is_event_listener_on: true,
-            glob_instance: match self.self_instance {
+            glob_instance: match self.self_instance.clone() {
                 Some(v) => v,
                 None => {
                     return Err(QuickSocketError::InstanceInitializeInvalid.to_box());
                 }
-            }.clone(),
+            },
         };
 
         setter(&mut channel);
 
         let channel_id = channel.channel_id.clone();
 
-        let mut mutex = self.socket.tcp.lock()?;
+        // let self_instance_cloned_opt = self.self_instance.clone();
+
+        // let self_instance_cloned = match self_instance_cloned_opt {
+        //     Some(v) => v,
+        //     None => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        // };
+
+        // let instance_mutex = match self_instance_cloned.lock() {
+        //     Ok(v) => v,
+        //     Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        // };
+        // println!("HELLO");
+
+        // let mut mutex = match instance_mutex.socket.tcp.lock() {
+        //     Ok(v) => v,
+        //     Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        // };
+
+        // mutex.insert(channel_id.clone(), Arc::new(channel));
+
+        let mut mutex = match self.socket.tcp.lock() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
 
         mutex.insert(channel_id.clone(), Arc::new(channel));
 
@@ -463,8 +499,8 @@ impl QuickSocketInstance {
             thread::spawn(move || {
                 println!("TCP Thread spawned!");
                 while !&channel.is_destroyed {
-                println!("TCP While loop going");
-                let instance_accepted =
+                    println!("TCP While loop going");
+                    let instance_accepted =
                         || -> Result<(TcpStream, SocketAddr), Box<dyn std::error::Error>> {
                             Ok(channel.instance.lock()?.accept()?)
                         }();
@@ -494,7 +530,6 @@ impl QuickSocketInstance {
                         };
 
                         println!("TCP data accepted: {}", &str_buf);
-
 
                         let msg = match json::parse(str_buf.as_str()) {
                             Ok(v) => v,

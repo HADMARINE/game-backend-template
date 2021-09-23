@@ -8,8 +8,9 @@ fn main() {
     println!("SOCKET SERVER STARTED");
     let instance = QuickSocketInstance::new();
     println!("INSTANCE INITIALIZED");
-    let channel_1 = instance.create_tcp_channel(|v| {});
-    let channel_2 = instance.create_tcp_channel(|v| {});
-
+    let lock_instance = instance.lock().unwrap();
+    let channel_1 = lock_instance.create_tcp_channel(|v| {});
+    let channel_2 = lock_instance.create_tcp_channel(|v| {});
+    drop(lock_instance);
     loop {}
 }
