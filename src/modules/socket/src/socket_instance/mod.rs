@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net;
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use uuid::Uuid;
 
@@ -38,7 +38,7 @@ pub struct QuickSocketInstance {
         Arc<Mutex<HashMap<String, Arc<UdpChannel>>>>,
     >,
     pub properties: Properties,
-    pub self_instance: Option<Arc<Mutex<QuickSocketInstance>>>,
+    pub self_instance: Option<Arc<RwLock<QuickSocketInstance>>>,
 }
 
 pub struct ChannelClient {
@@ -93,7 +93,7 @@ pub struct Channel<T> {
         HashMap<String, fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>>,
     is_destroyed: bool,
     is_event_listener_on: bool,
-    glob_instance: Arc<Mutex<QuickSocketInstance>>,
+    glob_instance: Arc<RwLock<QuickSocketInstance>>,
 }
 
 impl ChannelImpl for Channel<TcpListener> {
@@ -214,10 +214,7 @@ pub type TcpChannel = Channel<TcpListener>;
 pub type UdpChannel = Channel<UdpSocket>;
 
 impl QuickSocketInstance {
-    pub fn new() -> Arc<Mutex<Self>> {
-        // let port: u16 = 8080;
-        // let addr = format!("127.0.0.1:{}", &port);
-
+    pub fn new() -> Arc<RwLock<Self>> {
         let tcp_channels: Arc<Mutex<HashMap<String, Arc<TcpChannel>>>> =
             Arc::new(Mutex::from(HashMap::new()));
         let udp_channels: Arc<Mutex<HashMap<String, Arc<UdpChannel>>>> =
@@ -241,30 +238,9 @@ impl QuickSocketInstance {
             self_instance: None,
         };
 
-        // let default_tcp_channel = TcpChannel {
-        //     instance: Arc::new(Mutex::from(TcpListener::bind(&addr).unwrap())),
-        //     registered_client: Arc::new(Mutex::from(vec![])),
-        //     channel_id: Uuid::nil().to_string(),
-        //     port,
-        //     event_handlers: HashMap::new(),
-        //     is_destroyed: false,
-        //     glob_instance: &instance,
-        //     is_event_listener_on: true,
-        // };
+        let instance_arced = Arc::new(RwLock::from(instance));
 
-        // // Add default TCP Channel to channel
-        // match instance.socket.tcp.lock() {
-        //     Ok(v) => v,
-        //     Err(_) => panic!(QuickSocketError::ChannelInitializeFail),
-        // }
-        // .insert(
-        //     default_tcp_channel.channel_id.clone(),
-        //     Arc::new(default_tcp_channel),
-        // );
-
-        let instance_arced = Arc::new(Mutex::from(instance));
-
-        let locked = &mut instance_arced.lock().unwrap();
+        let locked = &mut instance_arced.write().unwrap();
 
         locked.self_instance = Some(instance_arced.clone());
 
@@ -274,9 +250,9 @@ impl QuickSocketInstance {
     }
 
     fn get_vacant_port(&self, func: fn(u16) -> bool) -> Option<u16> {
-        for i in self.properties.port_range.start.clone()..self.properties.port_range.end.clone() {
+        for i in self.properties.port_range.start..self.properties.port_range.end {
             if !func(i) {
-                return Some(i);
+                return Some(0);
             }
         }
         None
@@ -286,17 +262,24 @@ impl QuickSocketInstance {
         &self,
         setter: fn(&mut UdpChannel),
     ) -> Result<Arc<UdpChannel>, Box<dyn std::error::Error>> {
-        let port = if let Some(v) = self.get_vacant_port(util::scan_port::udp) {
-            v
-        } else {
-            return Err(Box::new(QuickSocketError::VacantPortSearchFail));
+        let addr = "127.0.0.1:0";
+
+        let sock_ins = Arc::new(Mutex::from(UdpSocket::bind(addr)?));
+
+        let locked_temp = sock_ins.clone();
+
+        let locked_listener = match locked_temp.lock() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
         };
 
-        let addr = format!("127.0.0.1:{}", &port);
+        let port = locked_listener.local_addr()?.port();
+
+        drop(locked_listener);
 
         let mut channel = UdpChannel {
             channel_id: Uuid::new_v4().to_string(),
-            instance: Arc::new(Mutex::from(UdpSocket::bind(addr)?)),
+            instance: sock_ins,
             registered_client: Arc::new(Mutex::from(vec![])),
             port,
             event_handlers: HashMap::new(),
@@ -333,7 +316,9 @@ impl QuickSocketInstance {
 
         if channel.is_event_listener_on {
             thread::spawn(move || {
+                println!("UDP Thread spawned!");
                 while !&channel.is_destroyed {
+                    println!("UDP While loop going");
                     let mut buf: [u8; 65535] = [0; 65535];
                     let received = || -> Result<_, Box<dyn std::error::Error>> {
                         Ok(channel.instance.lock()?.recv_from(&mut buf)?)
@@ -422,6 +407,8 @@ impl QuickSocketInstance {
             });
         }
 
+        println!("UDP Channel opened on port : {}", channel_clone.port);
+
         Ok(channel_clone)
     }
 
@@ -429,17 +416,24 @@ impl QuickSocketInstance {
         &self,
         setter: fn(&mut TcpChannel),
     ) -> Result<Arc<TcpChannel>, Box<dyn std::error::Error>> {
-        let port = if let Some(port) = self.get_vacant_port(util::scan_port::tcp) {
-            port
-        } else {
-            return Err(Box::new(QuickSocketError::VacantPortSearchFail));
+        let addr = "127.0.0.1:0";
+
+        let sock_ins = Arc::new(Mutex::from(TcpListener::bind(addr)?));
+
+        let locked_tmp = sock_ins.clone();
+
+        let locked_listener = match locked_tmp.lock() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
         };
 
-        let addr = format!("127.0.0.1:{}", &port);
+        let port = locked_listener.local_addr()?.port();
+
+        drop(locked_listener);
 
         let mut channel = TcpChannel {
             channel_id: Uuid::new_v4().to_string(),
-            instance: Arc::new(Mutex::from(TcpListener::bind(addr)?)),
+            instance: sock_ins,
             registered_client: Arc::new(Mutex::from(vec![])),
             port,
             event_handlers: HashMap::new(),
@@ -457,26 +451,6 @@ impl QuickSocketInstance {
 
         let channel_id = channel.channel_id.clone();
 
-        // let self_instance_cloned_opt = self.self_instance.clone();
-
-        // let self_instance_cloned = match self_instance_cloned_opt {
-        //     Some(v) => v,
-        //     None => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
-        // };
-
-        // let instance_mutex = match self_instance_cloned.lock() {
-        //     Ok(v) => v,
-        //     Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
-        // };
-        // println!("HELLO");
-
-        // let mut mutex = match instance_mutex.socket.tcp.lock() {
-        //     Ok(v) => v,
-        //     Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
-        // };
-
-        // mutex.insert(channel_id.clone(), Arc::new(channel));
-
         let mut mutex = match self.socket.tcp.lock() {
             Ok(v) => v,
             Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
@@ -490,8 +464,6 @@ impl QuickSocketInstance {
                 return Err(Box::new(QuickSocketError::ChannelInitializeFail));
             }
         };
-
-        drop(mutex);
 
         let channel_clone = channel.clone();
 
@@ -587,6 +559,8 @@ impl QuickSocketInstance {
         }
 
         println!("TCP Channel opened on port : {}", channel_clone.port);
+
+        drop(mutex);
 
         Ok(channel_clone)
     }
