@@ -18,6 +18,7 @@ pub enum QuickSocketError {
     EventNotFound,
     InternalServerError,
     InstanceInitializeInvalid,
+    ClientDataInvalid,
     Undefined(String),
     Custom(String, String),
 }
@@ -76,6 +77,10 @@ impl QuickSocketError {
             QuickSocketError::Custom(code, message) => ErrorDetails {
                 code: code.clone(),
                 message: message.clone(),
+            },
+            QuickSocketError::ClientDataInvalid => ErrorDetails {
+                code: String::from("CLIENT_DATA_INVALID"),
+                message: String::from("Client data is invalid"),
             },
         }
     }

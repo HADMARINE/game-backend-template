@@ -42,9 +42,19 @@ pub struct QuickSocketInstance {
 }
 
 pub struct ChannelClient {
-    uid: Option<String>,
+    uid: String,
     addr: SocketAddr,
     stream: Option<TcpStream>,
+}
+
+impl ChannelClient {
+    pub fn new(addr: SocketAddr, stream: Option<TcpStream>) -> Self {
+        ChannelClient {
+            addr,
+            stream,
+            uid: Uuid::new_v4().to_string(),
+        }
+    }
 }
 
 macro_rules! temp_client {
@@ -52,7 +62,7 @@ macro_rules! temp_client {
         {
             let mut temp_vec = Vec::new();
             $(
-                temp_vec.push(ChannelClient{addr:$x,stream:None, uid:None });
+                temp_vec.push(ChannelClient{addr:$x,stream:None, uid:String::new() });
             )*
             temp_vec
         }
@@ -134,9 +144,43 @@ impl ChannelImpl for Channel<TcpListener> {
         &self,
         clients: Vec<ChannelClient>,
         event: ResponseEvent,
-        valuee: JsonValue,
+        value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        Ok(())
+        println!("{} : {}", event.to_string(), &value);
+
+        let mut errors: Vec<Box<dyn std::error::Error>> = vec![];
+
+        let json_value = object! {
+            event: event.to_string(),
+            data: value
+        };
+
+        for client in clients {
+            let mut v = match client.stream {
+                Some(v) => v,
+                None => {
+                    errors.push(QuickSocketError::ClientDataInvalid.to_box());
+                    continue;
+                }
+            };
+            match v.write(json_value.to_string().as_bytes()) {
+                // match v.write("Hello".as_bytes()) {
+                Ok(_) => (),
+                Err(e) => {
+                    errors.push(Box::new(e));
+                    continue;
+                }
+            };
+        }
+        if errors.len() == 0 {
+            Ok(())
+        } else {
+            println!("Error!");
+            for er in &errors {
+                eprintln!("Error : {}", er);
+            }
+            Err(errors)
+        }
     }
 
     fn register_event_handler(
@@ -169,7 +213,32 @@ impl ChannelImpl for Channel<UdpSocket> {
         event: ResponseEvent,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        todo!()
+        let mut errors: Vec<Box<dyn std::error::Error>> = vec![];
+        let value = object! {
+            event: event.to_string(),
+            data: value
+        };
+        let value = json::stringify(value);
+        for client in self.registered_client.lock().unwrap().iter() {
+            match match &client.stream {
+                Some(v) => v,
+                None => continue,
+            }
+            .write(value.as_bytes())
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    errors.push(Box::new(e));
+                    continue;
+                }
+            };
+        }
+
+        if errors.len() != 0 {
+            return Err(errors);
+        }
+
+        Ok(())
     }
 
     fn emit_to(
@@ -178,14 +247,48 @@ impl ChannelImpl for Channel<UdpSocket> {
         event: ResponseEvent,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        todo!()
+        let mut errors: Vec<Box<dyn std::error::Error>> = vec![];
+        let value = object! {
+            event: event.to_string(),
+            data: value
+        };
+        let value = json::stringify(value);
+        for client in clients {
+            match match &client.stream {
+                Some(v) => v,
+                None => continue,
+            }
+            .write(value.as_bytes())
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    errors.push(Box::new(e));
+                    continue;
+                }
+            };
+        }
+
+        if errors.len() != 0 {
+            return Err(errors);
+        }
+
+        Ok(())
     }
 
     fn disconnect_certain(
         &self,
-        client: Vec<ChannelClient>,
+        clients: Vec<ChannelClient>,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
         todo!()
+        // // let mut errors: Vec<Box<dyn std::error::Error>> = vec![];
+        // let locked = self.registered_client.lock().unwrap();
+        // //     locked.into_iter().find(|x| {
+        // //         clients.into_iter().find()
+        // //     });
+        // let Some(v) = locked.get(0);
+
+        // let Some(v) = v.stream;
+        // v.s
     }
 
     fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>> {
@@ -472,16 +575,21 @@ impl QuickSocketInstance {
                 println!("TCP Thread spawned!");
                 while !&channel.is_destroyed {
                     println!("TCP While loop going");
-                    let instance_accepted =
-                        || -> Result<(TcpStream, SocketAddr), Box<dyn std::error::Error>> {
-                            Ok(channel.instance.lock()?.accept()?)
-                        }();
-                    let (mut stream, addr) = match instance_accepted {
+                    let instance_accepted = || -> Result<_, Box<dyn std::error::Error>> {
+                        Ok(channel.instance.lock()?.incoming())
+                    }();
+                    let mut v = match instance_accepted {
                         Ok(v) => v,
                         Err(e) => {
                             return;
                         }
                     };
+
+                    // stream.write("Hello".as_bytes());
+                    // stream.flush();
+                    // stream.write("Hello".as_bytes());
+
+                    let accepted_client = ChannelClient::new(addr, Some(stream));
 
                     let channel_closure_clone = channel.clone();
 
@@ -489,11 +597,16 @@ impl QuickSocketInstance {
                         let channel = channel_closure_clone;
 
                         let mut str_buf = String::new();
-                        let len = match stream.read_to_string(&mut str_buf) {
+                        let len = match match &accepted_client.stream {
+                            Some(v) => v,
+                            None => return,
+                        }
+                        .read_to_string(&mut str_buf)
+                        {
                             Ok(v) => v,
                             Err(e) => {
                                 channel.emit_to(
-                                    temp_client!(addr),
+                                    vec![accepted_client],
                                     ResponseEvent::Error,
                                     QuickSocketError::SocketBufferReadFail.jsonify(),
                                 );
@@ -507,7 +620,7 @@ impl QuickSocketInstance {
                             Ok(v) => v,
                             Err(e) => {
                                 channel.emit_to(
-                                    temp_client!(addr),
+                                    vec![accepted_client],
                                     ResponseEvent::Error,
                                     QuickSocketError::JsonParseFail.jsonify(),
                                 );
@@ -518,7 +631,7 @@ impl QuickSocketInstance {
                         let event = &msg["event"];
                         if !event.is_string() {
                             channel.emit_to(
-                                temp_client!(addr),
+                                vec![accepted_client],
                                 ResponseEvent::Error,
                                 QuickSocketError::JsonFormatInvalid.jsonify(),
                             );
@@ -529,7 +642,7 @@ impl QuickSocketInstance {
                             Some(v) => v,
                             None => {
                                 channel.emit_to(
-                                    temp_client!(addr),
+                                    vec![accepted_client],
                                     ResponseEvent::Error,
                                     QuickSocketError::EventNotFound.jsonify(),
                                 );
@@ -540,13 +653,17 @@ impl QuickSocketInstance {
                         match event_handler(msg["data"].to_owned()) {
                             Ok(v) => {
                                 if let Some(value) = v {
-                                    channel.emit_to(temp_client!(addr), ResponseEvent::Ok, value);
+                                    channel.emit_to(
+                                        vec![accepted_client],
+                                        ResponseEvent::Ok,
+                                        value,
+                                    );
                                 }
                                 ()
                             }
                             Err(e) => {
                                 channel.emit_to(
-                                    temp_client!(addr),
+                                    vec![accepted_client],
                                     ResponseEvent::Error,
                                     e.jsonify(),
                                 );
