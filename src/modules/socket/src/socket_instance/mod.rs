@@ -8,6 +8,7 @@ use std::net;
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
+use tungstenite::{accept, Message, WebSocket};
 use uuid::Uuid;
 
 use self::event::ResponseEvent;
@@ -44,14 +45,20 @@ pub struct QuickSocketInstance {
 pub struct ChannelClient {
     uid: String,
     addr: SocketAddr,
-    stream: Option<TcpStream>,
+    stream: Option<WebSocket<TcpStream>>,
 }
 
 impl ChannelClient {
     pub fn new(addr: SocketAddr, stream: Option<TcpStream>) -> Self {
         ChannelClient {
             addr,
-            stream,
+            stream: match stream {
+                Some(v) => Some(match accept(v) {
+                    Ok(v) => v,
+                    Err(e) => panic!(e),
+                }),
+                None => None,
+            },
             uid: Uuid::new_v4().to_string(),
         }
     }
@@ -118,12 +125,12 @@ impl ChannelImpl for Channel<TcpListener> {
             data: value
         };
         let value = json::stringify(value);
-        for client in self.registered_client.lock().unwrap().iter() {
-            match match &client.stream {
+        for client in self.registered_client.lock().unwrap().iter_mut() {
+            match match &mut client.stream {
                 Some(v) => v,
                 None => continue,
             }
-            .write(value.as_bytes())
+            .write_message(Message::Text(value.clone()))
             {
                 Ok(v) => v,
                 Err(e) => {
@@ -163,8 +170,7 @@ impl ChannelImpl for Channel<TcpListener> {
                     continue;
                 }
             };
-            match v.write(json_value.to_string().as_bytes()) {
-                // match v.write("Hello".as_bytes()) {
+            match v.write_message(Message::Text(json_value.to_string())) {
                 Ok(_) => (),
                 Err(e) => {
                     errors.push(Box::new(e));
@@ -219,12 +225,12 @@ impl ChannelImpl for Channel<UdpSocket> {
             data: value
         };
         let value = json::stringify(value);
-        for client in self.registered_client.lock().unwrap().iter() {
-            match match &client.stream {
+        for client in self.registered_client.lock().unwrap().iter_mut() {
+            match match &mut client.stream {
                 Some(v) => v,
                 None => continue,
             }
-            .write(value.as_bytes())
+            .write_message(Message::Text(value.clone()))
             {
                 Ok(v) => v,
                 Err(e) => {
@@ -253,12 +259,12 @@ impl ChannelImpl for Channel<UdpSocket> {
             data: value
         };
         let value = json::stringify(value);
-        for client in clients {
-            match match &client.stream {
+        for mut client in clients {
+            match match &mut client.stream {
                 Some(v) => v,
                 None => continue,
             }
-            .write(value.as_bytes())
+            .write_message(Message::Text(value.clone()))
             {
                 Ok(v) => v,
                 Err(e) => {
@@ -573,37 +579,63 @@ impl QuickSocketInstance {
         if *&channel.is_event_listener_on {
             thread::spawn(move || {
                 println!("TCP Thread spawned!");
-                while !&channel.is_destroyed {
-                    println!("TCP While loop going");
-                    let instance_accepted = || -> Result<_, Box<dyn std::error::Error>> {
-                        Ok(channel.instance.lock()?.incoming())
-                    }();
-                    let mut v = match instance_accepted {
+                for instance in channel.instance.lock().unwrap().incoming() {
+                    if channel.is_destroyed {
+                        break;
+                    }
+                    println!("TCP For loop going");
+                    // let instance_accepted = || -> Result<_, Box<dyn std::error::Error>> {
+                    //     Ok(channel.instance.lock()?.incoming())
+                    // }();
+                    // let mut v = match instance_accepted {
+                    //     Ok(v) => v,
+                    //     Err(e) => {
+                    //         return;
+                    //     }
+                    // };
+
+                    let instance = match instance {
                         Ok(v) => v,
-                        Err(e) => {
-                            return;
-                        }
+                        Err(_) => continue,
                     };
 
-                    // stream.write("Hello".as_bytes());
-                    // stream.flush();
-                    // stream.write("Hello".as_bytes());
+                    let addr = match instance.local_addr() {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
 
-                    let accepted_client = ChannelClient::new(addr, Some(stream));
+                    // let stream = match accept(instance) {
+                    //     Ok(v) => v,
+                    //     Err(_) => continue,
+                    // };
+
+                    let mut accepted_client = ChannelClient::new(addr, Some(instance));
 
                     let channel_closure_clone = channel.clone();
 
                     thread::spawn(move || {
                         let channel = channel_closure_clone;
 
-                        let mut str_buf = String::new();
-                        let len = match match &accepted_client.stream {
+                        let val = match match &mut accepted_client.stream {
                             Some(v) => v,
                             None => return,
                         }
-                        .read_to_string(&mut str_buf)
+                        .read_message()
                         {
-                            Ok(v) => v,
+                            Ok(v) => {
+                                // let Message(res) = v;
+                                match v.into_text() {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        channel.emit_to(
+                                            vec![accepted_client],
+                                            ResponseEvent::Error,
+                                            QuickSocketError::SocketBufferReadFail.jsonify(),
+                                        );
+                                        return;
+                                    }
+                                }
+                            }
                             Err(e) => {
                                 channel.emit_to(
                                     vec![accepted_client],
@@ -614,11 +646,11 @@ impl QuickSocketInstance {
                             }
                         };
 
-                        println!("TCP data accepted: {}", &str_buf);
+                        println!("TCP data accepted: {}", &val);
 
-                        let msg = match json::parse(str_buf.as_str()) {
+                        let msg = match json::parse(&val) {
                             Ok(v) => v,
-                            Err(e) => {
+                            Err(_) => {
                                 channel.emit_to(
                                     vec![accepted_client],
                                     ResponseEvent::Error,
