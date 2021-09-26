@@ -1,3 +1,5 @@
+#![feature(drain_filter)]
+
 use crate::error::predeclared::QuickSocketError;
 use crate::util;
 use json::{object, JsonValue};
@@ -49,12 +51,6 @@ pub struct ChannelClient {
     stream: Option<Arc<Mutex<WebSocket<TcpStream>>>>,
 }
 
-pub struct ChannelClientCloned {
-    uid: String,
-    addr: SocketAddr,
-    stream: Option<Arc<Mutex<WebSocket<TcpStream>>>>,
-}
-
 impl ChannelClient {
     pub fn new(addr: SocketAddr, stream: Option<TcpStream>) -> Self {
         ChannelClient {
@@ -98,7 +94,7 @@ trait ChannelImpl {
     fn register_event_handler(
         &self,
         event: String,
-        func: fn(JsonValue) -> Result<(), Box<QuickSocketError>>,
+        func: fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>>;
     fn disconnect_certain(
         &self,
@@ -126,35 +122,11 @@ impl ChannelImpl for Channel<TcpListener> {
         event: ResponseEvent,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        let mut errors: Vec<Box<dyn std::error::Error>> = vec![];
-        let value = object! {
-            event: event.to_string(),
-            data: value
+        let clients = match self.registered_client.lock() {
+            Ok(v) => v.to_vec(),
+            Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
-        let value = json::stringify(value);
-        for client in self.registered_client.lock().unwrap().iter_mut() {
-            match match &mut client.stream {
-                Some(v) => match v.lock() {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                },
-                None => continue,
-            }
-            .write_message(Message::Text(value.clone()))
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    errors.push(Box::new(e));
-                    continue;
-                }
-            };
-        }
-
-        if errors.len() != 0 {
-            return Err(errors);
-        }
-
-        Ok(())
+        self.emit_to(clients, event, value)
     }
 
     fn emit_to(
@@ -173,7 +145,7 @@ impl ChannelImpl for Channel<TcpListener> {
         };
 
         for client in clients {
-            let mut v = match client.stream {
+            let v = match client.stream {
                 Some(v) => v,
                 None => {
                     errors.push(QuickSocketError::ClientDataInvalid.to_box());
@@ -207,23 +179,52 @@ impl ChannelImpl for Channel<TcpListener> {
     fn register_event_handler(
         &self,
         event: String,
-        func: fn(JsonValue) -> Result<(), Box<QuickSocketError>>,
+        func: fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        if self.event_handlers.get(&event) != None {
+            return Err(QuickSocketError::EventAlreadyExists.to_box());
+        }
+        self.event_handlers.insert(event, func);
         Ok(())
     }
 
     fn disconnect_certain(
         &self,
-        client: Vec<ChannelClient>,
+        search_client: Vec<ChannelClient>,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
+        let clients = match self.registered_client.lock() {
+            Ok(v) => v,
+            Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
+        };
+
+        clients.retain(|client| {
+            for cmp_client in &search_client {
+                if client.uid == cmp_client.uid {
+                    search_client.retain(|cmp_client_babe| cmp_client_babe.uid != cmp_client.uid);
+                    return false;
+                }
+            }
+            return true;
+        });
+
         Ok(())
     }
 
     fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>> {
+        let client = match self.registered_client.lock() {
+            Ok(v) => v,
+            Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
+        };
+
+        client.clear();
+        client.shrink_to_fit();
+
         Ok(())
     }
 
     fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>> {
+        self.is_event_listener_on = false;
+        self.is_destroyed = true;
         Ok(())
     }
 }
@@ -234,35 +235,11 @@ impl ChannelImpl for Channel<UdpSocket> {
         event: ResponseEvent,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        let mut errors: Vec<Box<dyn std::error::Error>> = vec![];
-        let value = object! {
-            event: event.to_string(),
-            data: value
+        let locked_registered_client = match self.registered_client.lock() {
+            Ok(v) => v.to_vec(),
+            Err(e) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
-        let value = json::stringify(value);
-        for client in self.registered_client.lock().unwrap().iter_mut() {
-            match match &mut client.stream {
-                Some(v) => match v.lock() {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                },
-                None => continue,
-            }
-            .write_message(Message::Text(value.clone()))
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    errors.push(Box::new(e));
-                    continue;
-                }
-            };
-        }
-
-        if errors.len() != 0 {
-            return Err(errors);
-        }
-
-        Ok(())
+        self.emit_to(locked_registered_client, event, value)
     }
 
     fn emit_to(
@@ -277,22 +254,19 @@ impl ChannelImpl for Channel<UdpSocket> {
             data: value
         };
         let value = json::stringify(value);
-        for mut client in clients {
-            match match &mut client.stream {
-                Some(v) => match v.lock() {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                },
-                None => continue,
-            }
-            .write_message(Message::Text(value.clone()))
-            {
+        for client in clients {
+            match match self.instance.lock() {
                 Ok(v) => v,
-                Err(e) => {
-                    errors.push(Box::new(e));
+                Err(_) => {
+                    errors.push(QuickSocketError::ClientDataInvalid.to_box());
                     continue;
                 }
-            };
+            }
+            .send_to(value.as_bytes(), client.addr)
+            {
+                Ok(_) => continue,
+                Err(_) => errors.push(QuickSocketError::DataResponseFail.to_box()),
+            }
         }
 
         if errors.len() != 0 {
@@ -307,15 +281,6 @@ impl ChannelImpl for Channel<UdpSocket> {
         clients: Vec<ChannelClient>,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
         todo!()
-        // // let mut errors: Vec<Box<dyn std::error::Error>> = vec![];
-        // let locked = self.registered_client.lock().unwrap();
-        // //     locked.into_iter().find(|x| {
-        // //         clients.into_iter().find()
-        // //     });
-        // let Some(v) = locked.get(0);
-
-        // let Some(v) = v.stream;
-        // v.s
     }
 
     fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>> {
@@ -386,160 +351,6 @@ impl QuickSocketInstance {
             }
         }
         None
-    }
-
-    pub fn create_udp_channel(
-        &self,
-        setter: fn(&mut UdpChannel),
-    ) -> Result<Arc<UdpChannel>, Box<dyn std::error::Error>> {
-        let addr = "127.0.0.1:0";
-
-        let sock_ins = Arc::new(Mutex::from(UdpSocket::bind(addr)?));
-
-        let locked_temp = sock_ins.clone();
-
-        let locked_listener = match locked_temp.lock() {
-            Ok(v) => v,
-            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
-        };
-
-        let port = locked_listener.local_addr()?.port();
-
-        drop(locked_listener);
-
-        let mut channel = UdpChannel {
-            channel_id: Uuid::new_v4().to_string(),
-            instance: sock_ins,
-            registered_client: Arc::new(Mutex::from(vec![])),
-            port,
-            event_handlers: HashMap::new(),
-            is_destroyed: false,
-            glob_instance: match self.self_instance.clone() {
-                Some(v) => v,
-                None => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
-            }
-            .clone(),
-            is_event_listener_on: true,
-        };
-
-        setter(&mut channel);
-
-        let channel_id = channel.channel_id.clone();
-
-        let mut mutex = match self.socket.udp.lock() {
-            Ok(v) => v,
-            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
-        };
-
-        mutex.insert(channel_id.clone(), Arc::new(channel));
-
-        let channel = match mutex.get_mut(&channel_id) {
-            Some(v) => v.clone(),
-            None => {
-                return Err(Box::new(QuickSocketError::ChannelInitializeFail));
-            }
-        };
-
-        drop(mutex);
-
-        let channel_clone = channel.clone();
-
-        if channel.is_event_listener_on {
-            thread::spawn(move || {
-                println!("UDP Thread spawned!");
-                while !&channel.is_destroyed {
-                    println!("UDP While loop going");
-                    let mut buf: [u8; 65535] = [0; 65535];
-                    let received = || -> Result<_, Box<dyn std::error::Error>> {
-                        Ok(channel.instance.lock()?.recv_from(&mut buf)?)
-                    }();
-                    let (size, addr) = match received {
-                        Ok(v) => v,
-                        Err(e) => {
-                            // Cannot emit to errored client because we don't know any data of client.
-                            return;
-                        }
-                    };
-
-                    let channel_closure_clone = channel.clone();
-
-                    thread::spawn(move || {
-                        let buf = &mut buf[..size];
-                        let channel = channel_closure_clone;
-
-                        if let Ok(value) = std::str::from_utf8(buf) {
-                            let msg = match json::parse(value) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    channel.emit_to(
-                                        temp_client!(addr),
-                                        ResponseEvent::Error,
-                                        QuickSocketError::JsonParseFail.jsonify(),
-                                    );
-                                    return;
-                                }
-                            };
-
-                            let event = &msg["event"];
-
-                            if !event.is_string() {
-                                channel.emit_to(
-                                    temp_client!(addr),
-                                    ResponseEvent::Error,
-                                    QuickSocketError::JsonFormatInvalid.jsonify(),
-                                );
-                                return;
-                            }
-
-                            let event_handler = match channel.event_handlers.get(&event.to_string())
-                            {
-                                Some(v) => v,
-                                None => {
-                                    channel.emit_to(
-                                        temp_client!(addr),
-                                        ResponseEvent::Error,
-                                        QuickSocketError::EventNotFound.jsonify(),
-                                    );
-                                    return;
-                                }
-                            };
-
-                            match event_handler(msg["data"].to_owned()) {
-                                Ok(v) => {
-                                    if let Some(value) = v {
-                                        channel.emit_to(
-                                            temp_client!(addr),
-                                            ResponseEvent::Ok,
-                                            value,
-                                        );
-                                    };
-                                    ()
-                                }
-                                Err(e) => {
-                                    channel.emit_to(
-                                        temp_client!(addr),
-                                        ResponseEvent::Error,
-                                        e.jsonify(),
-                                    );
-                                    ()
-                                }
-                            }
-                        } else {
-                            channel.emit_to(
-                                temp_client!(addr),
-                                ResponseEvent::Error,
-                                QuickSocketError::InternalServerError.jsonify(),
-                            );
-                            return;
-                        }
-                    });
-                }
-            });
-        }
-
-        println!("UDP Channel opened on port : {}", channel_clone.port);
-
-        Ok(channel_clone)
     }
 
     pub fn create_tcp_channel(
@@ -722,6 +533,161 @@ impl QuickSocketInstance {
         println!("TCP Channel opened on port : {}", channel_clone.port);
 
         drop(mutex);
+
+        Ok(channel_clone)
+    }
+
+    pub fn create_udp_channel(
+        &self,
+        setter: fn(&mut UdpChannel),
+    ) -> Result<Arc<UdpChannel>, Box<dyn std::error::Error>> {
+        let addr = "127.0.0.1:0";
+
+        let sock_ins = Arc::new(Mutex::from(UdpSocket::bind(addr)?));
+
+        let locked_temp = sock_ins.clone();
+
+        let locked_listener = match locked_temp.lock() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+
+        let port = locked_listener.local_addr()?.port();
+
+        drop(locked_listener);
+
+        let mut channel = UdpChannel {
+            channel_id: Uuid::new_v4().to_string(),
+            instance: sock_ins,
+            registered_client: Arc::new(Mutex::from(vec![])),
+            port,
+            event_handlers: HashMap::new(),
+            is_destroyed: false,
+            glob_instance: match self.self_instance.clone() {
+                Some(v) => v,
+                None => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+            }
+            .clone(),
+            is_event_listener_on: true,
+        };
+
+        setter(&mut channel);
+
+        let channel_id = channel.channel_id.clone();
+
+        let mut mutex = match self.socket.udp.lock() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+
+        mutex.insert(channel_id.clone(), Arc::new(channel));
+
+        let channel = match mutex.get_mut(&channel_id) {
+            Some(v) => v.clone(),
+            None => {
+                return Err(Box::new(QuickSocketError::ChannelInitializeFail));
+            }
+        };
+
+        drop(mutex);
+
+        let channel_clone = channel.clone();
+
+        if channel.is_event_listener_on {
+            thread::spawn(move || {
+                println!("UDP Thread spawned!");
+                while !&channel.is_destroyed {
+                    println!("UDP While loop going");
+                    let mut buf: [u8; 65535] = [0; 65535];
+                    let received = || -> Result<_, Box<dyn std::error::Error>> {
+                        Ok(channel.instance.lock()?.recv_from(&mut buf)?)
+                    }();
+                    let (size, addr) = match received {
+                        Ok(v) => v,
+                        Err(e) => {
+                            // Cannot emit to errored client because we don't know any data of client.
+                            return;
+                        }
+                    };
+
+                    let channel_closure_clone = channel.clone();
+
+                    thread::spawn(move || {
+                        let buf = &mut buf[..size];
+                        let channel = channel_closure_clone;
+
+                        if let Ok(value) = std::str::from_utf8(buf) {
+                            println!("UDP Data recieved, {}", &value);
+                            let msg = match json::parse(value) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    channel.emit_to(
+                                        temp_client!(addr),
+                                        ResponseEvent::Error,
+                                        QuickSocketError::JsonParseFail.jsonify(),
+                                    );
+                                    return;
+                                }
+                            };
+
+                            let event = &msg["event"];
+
+                            if !event.is_string() {
+                                channel.emit_to(
+                                    temp_client!(addr),
+                                    ResponseEvent::Error,
+                                    QuickSocketError::JsonFormatInvalid.jsonify(),
+                                );
+                                return;
+                            }
+
+                            let event_handler = match channel.event_handlers.get(&event.to_string())
+                            {
+                                Some(v) => v,
+                                None => {
+                                    channel.emit_to(
+                                        temp_client!(addr),
+                                        ResponseEvent::Error,
+                                        QuickSocketError::EventNotFound.jsonify(),
+                                    );
+                                    return;
+                                }
+                            };
+
+                            match event_handler(msg["data"].to_owned()) {
+                                Ok(v) => {
+                                    if let Some(value) = v {
+                                        channel.emit_to(
+                                            temp_client!(addr),
+                                            ResponseEvent::Ok,
+                                            value,
+                                        );
+                                    };
+                                    ()
+                                }
+                                Err(e) => {
+                                    channel.emit_to(
+                                        temp_client!(addr),
+                                        ResponseEvent::Error,
+                                        e.jsonify(),
+                                    );
+                                    ()
+                                }
+                            }
+                        } else {
+                            channel.emit_to(
+                                temp_client!(addr),
+                                ResponseEvent::Error,
+                                QuickSocketError::InternalServerError.jsonify(),
+                            );
+                            return;
+                        }
+                    });
+                }
+            });
+        }
+
+        println!("UDP Channel opened on port : {}", channel_clone.port);
 
         Ok(channel_clone)
     }
