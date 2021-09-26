@@ -111,8 +111,8 @@ pub struct Channel<T> {
     event_handlers: Arc<
         RwLock<HashMap<String, fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>>>,
     >,
-    is_destroyed: bool,
-    is_event_listener_on: bool,
+    is_destroyed: Arc<RwLock<bool>>,
+    is_event_listener_on: Arc<RwLock<bool>>,
     glob_instance: Arc<RwLock<QuickSocketInstance>>,
 }
 
@@ -200,7 +200,7 @@ impl ChannelImpl for Channel<TcpListener> {
 
     fn disconnect_certain(
         &self,
-        search_client: Vec<ChannelClient>,
+        search_clients: Vec<ChannelClient>,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
         let registered_client_clone = self.registered_client.clone();
         let mut clients_pre = match registered_client_clone.lock() {
@@ -210,12 +210,12 @@ impl ChannelImpl for Channel<TcpListener> {
 
         let clients: &mut Vec<ChannelClient> = clients_pre.as_mut();
 
-        let search_client = Rc::new(RefCell::new(search_client));
+        let search_clients = Rc::new(RefCell::new(search_clients));
 
         clients.retain(|client| {
-            for cmp_client in search_client.borrow().iter() {
+            for cmp_client in search_clients.borrow().iter() {
                 if client.uid == cmp_client.uid {
-                    search_client
+                    search_clients
                         .borrow_mut()
                         .retain(|cmp_client_babe| cmp_client_babe.uid != cmp_client.uid);
                     return false;
@@ -240,8 +240,16 @@ impl ChannelImpl for Channel<TcpListener> {
     }
 
     fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>> {
-        // self.is_event_listener_on = false;
-        // self.is_destroyed = true;
+        let mut is_event_listener_on = match self.is_event_listener_on.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+        *is_event_listener_on = false;
+        let mut is_destroyed = match self.is_destroyed.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+        *is_destroyed = true;
         Ok(())
     }
 }
@@ -295,17 +303,57 @@ impl ChannelImpl for Channel<UdpSocket> {
 
     fn disconnect_certain(
         &self,
-        clients: Vec<ChannelClient>,
+        search_clients: Vec<ChannelClient>,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        todo!()
+        let registered_client_clone = self.registered_client.clone();
+        let mut clients_pre = match registered_client_clone.lock() {
+            Ok(v) => v,
+            Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
+        };
+
+        let clients: &mut Vec<ChannelClient> = clients_pre.as_mut();
+
+        let search_clients = Rc::new(RefCell::new(search_clients));
+
+        clients.retain(|client| {
+            for cmp_client in search_clients.borrow().iter() {
+                if client.uid == cmp_client.uid {
+                    search_clients
+                        .borrow_mut()
+                        .retain(|cmp_client_babe| cmp_client_babe.uid != cmp_client.uid);
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        Ok(())
     }
 
     fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        todo!()
+        let mut client = match self.registered_client.lock() {
+            Ok(v) => v,
+            Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
+        };
+
+        client.clear();
+        client.shrink_to_fit();
+
+        Ok(())
     }
 
     fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>> {
-        todo!()
+        let mut is_event_listener_on = match self.is_event_listener_on.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+        *is_event_listener_on = false;
+        let mut is_destroyed = match self.is_destroyed.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+        *is_destroyed = true;
+        Ok(())
     }
 
     fn register_event_handler(
@@ -313,7 +361,21 @@ impl ChannelImpl for Channel<UdpSocket> {
         event: String,
         func: fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        todo!()
+        if match self.event_handlers.read() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        }
+        .get(&event)
+            != None
+        {
+            return Err(QuickSocketError::EventAlreadyExists.to_box());
+        }
+        match self.event_handlers.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        }
+        .insert(event, func);
+        Ok(())
     }
 }
 
@@ -395,8 +457,8 @@ impl QuickSocketInstance {
             registered_client: Arc::new(Mutex::from(vec![])),
             port,
             event_handlers: Arc::new(RwLock::from(HashMap::new())),
-            is_destroyed: false,
-            is_event_listener_on: true,
+            is_destroyed: Arc::new(RwLock::from(false)),
+            is_event_listener_on: Arc::new(RwLock::from(true)),
             glob_instance: match self.self_instance.clone() {
                 Some(v) => v,
                 None => {
@@ -425,11 +487,11 @@ impl QuickSocketInstance {
 
         let channel_clone = channel.clone();
 
-        if *&channel.is_event_listener_on {
+        if *channel.is_event_listener_on.read().unwrap() {
             thread::spawn(move || {
                 println!("TCP Thread spawned!");
                 for instance in channel.instance.lock().unwrap().incoming() {
-                    if channel.is_destroyed {
+                    if *channel.is_destroyed.read().unwrap() {
                         break;
                     }
                     println!("TCP For loop going");
@@ -583,13 +645,13 @@ impl QuickSocketInstance {
             registered_client: Arc::new(Mutex::from(vec![])),
             port,
             event_handlers: Arc::new(RwLock::from(HashMap::new())),
-            is_destroyed: false,
+            is_destroyed: Arc::new(RwLock::from(false)),
             glob_instance: match self.self_instance.clone() {
                 Some(v) => v,
                 None => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
             }
             .clone(),
-            is_event_listener_on: true,
+            is_event_listener_on: Arc::new(RwLock::from(true)),
         };
 
         setter(&mut channel);
@@ -614,10 +676,10 @@ impl QuickSocketInstance {
 
         let channel_clone = channel.clone();
 
-        if channel.is_event_listener_on {
+        if *channel.is_event_listener_on.read().unwrap() {
             thread::spawn(move || {
                 println!("UDP Thread spawned!");
-                while !&channel.is_destroyed {
+                while !*channel.is_destroyed.read().unwrap() {
                     println!("UDP While loop going");
                     let mut buf: [u8; 65535] = [0; 65535];
                     let received = || -> Result<_, Box<dyn std::error::Error>> {
