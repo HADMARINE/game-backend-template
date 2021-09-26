@@ -1,5 +1,3 @@
-#![feature(drain_filter)]
-
 use crate::error::predeclared::QuickSocketError;
 use crate::util;
 use json::{object, JsonValue};
@@ -7,6 +5,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::{clone, net};
@@ -109,8 +108,9 @@ pub struct Channel<T> {
     pub instance: Arc<Mutex<T>>,
     pub channel_id: String,
     pub port: u16,
-    event_handlers:
-        HashMap<String, fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>>,
+    event_handlers: Arc<
+        RwLock<HashMap<String, fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>>>,
+    >,
     is_destroyed: bool,
     is_event_listener_on: bool,
     glob_instance: Arc<RwLock<QuickSocketInstance>>,
@@ -181,10 +181,20 @@ impl ChannelImpl for Channel<TcpListener> {
         event: String,
         func: fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.event_handlers.get(&event) != None {
+        if match self.event_handlers.read() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        }
+        .get(&event)
+            != None
+        {
             return Err(QuickSocketError::EventAlreadyExists.to_box());
         }
-        self.event_handlers.insert(event, func);
+        match self.event_handlers.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        }
+        .insert(event, func);
         Ok(())
     }
 
@@ -192,15 +202,21 @@ impl ChannelImpl for Channel<TcpListener> {
         &self,
         search_client: Vec<ChannelClient>,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        let clients = match self.registered_client.lock() {
+        let registered_client_clone = self.registered_client.clone();
+        let mut clients_pre = match registered_client_clone.lock() {
             Ok(v) => v,
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
 
+        let clients: &mut Vec<ChannelClient> = clients_pre.as_mut();
+
+        let search_client = Rc::new(RefCell::new(search_client));
+
         clients.retain(|client| {
-            for cmp_client in &search_client {
+            for cmp_client in search_client.borrow().iter() {
                 if client.uid == cmp_client.uid {
-                    &mut search_client
+                    search_client
+                        .borrow_mut()
                         .retain(|cmp_client_babe| cmp_client_babe.uid != cmp_client.uid);
                     return false;
                 }
@@ -212,7 +228,7 @@ impl ChannelImpl for Channel<TcpListener> {
     }
 
     fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        let client = match self.registered_client.lock() {
+        let mut client = match self.registered_client.lock() {
             Ok(v) => v,
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
@@ -224,8 +240,8 @@ impl ChannelImpl for Channel<TcpListener> {
     }
 
     fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>> {
-        self.is_event_listener_on = false;
-        self.is_destroyed = true;
+        // self.is_event_listener_on = false;
+        // self.is_destroyed = true;
         Ok(())
     }
 }
@@ -378,7 +394,7 @@ impl QuickSocketInstance {
             instance: sock_ins,
             registered_client: Arc::new(Mutex::from(vec![])),
             port,
-            event_handlers: HashMap::new(),
+            event_handlers: Arc::new(RwLock::from(HashMap::new())),
             is_destroyed: false,
             is_event_listener_on: true,
             glob_instance: match self.self_instance.clone() {
@@ -492,8 +508,12 @@ impl QuickSocketInstance {
                                 continue;
                             }
 
-                            let event_handler = match channel.event_handlers.get(&event.to_string())
-                            {
+                            let event_handler_locked = match channel.event_handlers.read() {
+                                Ok(v) => v,
+                                Err(_) => continue,
+                            };
+
+                            let event_handler = match event_handler_locked.get(&event.to_string()) {
                                 Some(v) => v,
                                 None => {
                                     channel.emit_to(
@@ -562,7 +582,7 @@ impl QuickSocketInstance {
             instance: sock_ins,
             registered_client: Arc::new(Mutex::from(vec![])),
             port,
-            event_handlers: HashMap::new(),
+            event_handlers: Arc::new(RwLock::from(HashMap::new())),
             is_destroyed: false,
             glob_instance: match self.self_instance.clone() {
                 Some(v) => v,
@@ -642,8 +662,14 @@ impl QuickSocketInstance {
                                 return;
                             }
 
-                            let event_handler = match channel.event_handlers.get(&event.to_string())
-                            {
+                            let event_handler_locked = match channel.event_handlers.read() {
+                                Ok(v) => v,
+                                Err(_) => {
+                                    return;
+                                }
+                            };
+
+                            let event_handler = match event_handler_locked.get(&event.to_string()) {
                                 Some(v) => v,
                                 None => {
                                     channel.emit_to(
