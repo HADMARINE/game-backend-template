@@ -78,7 +78,7 @@ macro_rules! temp_client {
     };
 }
 
-trait ChannelImpl {
+pub trait ChannelImpl {
     fn emit_all(
         &self,
         event: ResponseEvent,
@@ -93,7 +93,7 @@ trait ChannelImpl {
     fn register_event_handler(
         &self,
         event: String,
-        func: fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
+        func: fn(JsonValue, ChannelClient) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>>;
     fn disconnect_certain(
         &self,
@@ -109,7 +109,12 @@ pub struct Channel<T> {
     pub channel_id: String,
     pub port: u16,
     event_handlers: Arc<
-        RwLock<HashMap<String, fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>>>,
+        RwLock<
+            HashMap<
+                String,
+                fn(JsonValue, ChannelClient) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
+            >,
+        >,
     >,
     is_destroyed: Arc<RwLock<bool>>,
     is_event_listener_on: Arc<RwLock<bool>>,
@@ -179,7 +184,7 @@ impl ChannelImpl for Channel<TcpListener> {
     fn register_event_handler(
         &self,
         event: String,
-        func: fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
+        func: fn(JsonValue, ChannelClient) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if match self.event_handlers.read() {
             Ok(v) => v,
@@ -359,7 +364,7 @@ impl ChannelImpl for Channel<UdpSocket> {
     fn register_event_handler(
         &self,
         event: String,
-        func: fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
+        func: fn(JsonValue, ChannelClient) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if match self.event_handlers.read() {
             Ok(v) => v,
@@ -587,7 +592,7 @@ impl QuickSocketInstance {
                                 }
                             };
 
-                            match event_handler(msg["data"].to_owned()) {
+                            match event_handler(msg["data"].to_owned(), accepted_client.clone()) {
                                 Ok(v) => {
                                     if let Some(value) = v {
                                         channel.emit_to(
@@ -727,6 +732,11 @@ impl QuickSocketInstance {
                             let event_handler_locked = match channel.event_handlers.read() {
                                 Ok(v) => v,
                                 Err(_) => {
+                                    channel.emit_to(
+                                        temp_client!(addr),
+                                        ResponseEvent::Error,
+                                        QuickSocketError::ChannelInitializeFail.jsonify(),
+                                    );
                                     return;
                                 }
                             };
@@ -743,7 +753,14 @@ impl QuickSocketInstance {
                                 }
                             };
 
-                            match event_handler(msg["data"].to_owned()) {
+                            match event_handler(
+                                msg["data"].to_owned(),
+                                ChannelClient {
+                                    addr: addr.clone(),
+                                    stream: None,
+                                    uid: String::new(),
+                                },
+                            ) {
                                 Ok(v) => {
                                     if let Some(value) = v {
                                         channel.emit_to(
