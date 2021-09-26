@@ -200,7 +200,8 @@ impl ChannelImpl for Channel<TcpListener> {
         clients.retain(|client| {
             for cmp_client in &search_client {
                 if client.uid == cmp_client.uid {
-                    search_client.retain(|cmp_client_babe| cmp_client_babe.uid != cmp_client.uid);
+                    &mut search_client
+                        .retain(|cmp_client_babe| cmp_client_babe.uid != cmp_client.uid);
                     return false;
                 }
             }
@@ -294,7 +295,7 @@ impl ChannelImpl for Channel<UdpSocket> {
     fn register_event_handler(
         &self,
         event: String,
-        func: fn(JsonValue) -> Result<(), Box<QuickSocketError>>,
+        func: fn(JsonValue) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         todo!()
     }
