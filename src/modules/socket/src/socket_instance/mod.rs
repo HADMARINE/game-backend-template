@@ -104,6 +104,8 @@ pub trait ChannelImpl {
     ) -> Result<(), Vec<Box<dyn std::error::Error>>>;
     fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>>;
     fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>>;
+    fn register_client(&self, client: ChannelClient) -> Result<(), Box<dyn std::error::Error>>;
+    fn reconnect_client_by_uid(&self, uid: String, client: ChannelClient) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 pub struct Channel<T> {
@@ -267,6 +269,10 @@ impl ChannelImpl for Channel<TcpListener> {
         };
         *is_destroyed = true;
         Ok(())
+    }
+
+    fn register_client(&self, client: ChannelClient) -> Result<(), Box<dyn std::error::Error>> {
+        self.registered_client.lock().
     }
 }
 
