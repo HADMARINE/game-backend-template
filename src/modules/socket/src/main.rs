@@ -16,7 +16,7 @@ fn main() {
     tcp_channel_1
         .register_event_handler("hello".to_string(), tcp_1_hello)
         .unwrap();
-    // let channel_2 = lock_instance.create_tcp_channel(|v| {});
+    tcp_channel_1.register_event_handler("register".to_string(), func)
     let udp_channel_1 = lock_instance.create_udp_channel(|v| {}).unwrap();
     udp_channel_1
         .register_event_handler("hello".to_string(), tcp_1_hello)
@@ -33,4 +33,14 @@ fn tcp_1_hello(
     println!("Hello world from 'hello' event handler");
     ch.emit_to(vec![c], event::ResponseEvent::Ok, JsonValue::Null);
     Ok(None)
+}
+
+
+fn register(
+    ch: Arc<dyn ChannelImpl>,
+    v: JsonValue,
+    c: ChannelClient,
+) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
+    println!("register");
+    ch.
 }
