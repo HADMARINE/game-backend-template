@@ -4,10 +4,10 @@ use json::{object, JsonValue};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net;
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
+use std::{clone, net};
 use tungstenite::{accept, Message, WebSocket};
 use uuid::Uuid;
 
@@ -42,10 +42,17 @@ pub struct QuickSocketInstance {
     pub self_instance: Option<Arc<RwLock<QuickSocketInstance>>>,
 }
 
+#[derive(Clone)]
 pub struct ChannelClient {
     uid: String,
     addr: SocketAddr,
-    stream: Option<WebSocket<TcpStream>>,
+    stream: Option<Arc<Mutex<WebSocket<TcpStream>>>>,
+}
+
+pub struct ChannelClientCloned {
+    uid: String,
+    addr: SocketAddr,
+    stream: Option<Arc<Mutex<WebSocket<TcpStream>>>>,
 }
 
 impl ChannelClient {
@@ -54,7 +61,7 @@ impl ChannelClient {
             addr,
             stream: match stream {
                 Some(v) => Some(match accept(v) {
-                    Ok(v) => v,
+                    Ok(v) => Arc::new(Mutex::from(v)),
                     Err(e) => panic!(e),
                 }),
                 None => None,
@@ -127,7 +134,10 @@ impl ChannelImpl for Channel<TcpListener> {
         let value = json::stringify(value);
         for client in self.registered_client.lock().unwrap().iter_mut() {
             match match &mut client.stream {
-                Some(v) => v,
+                Some(v) => match v.lock() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                },
                 None => continue,
             }
             .write_message(Message::Text(value.clone()))
@@ -170,7 +180,12 @@ impl ChannelImpl for Channel<TcpListener> {
                     continue;
                 }
             };
-            match v.write_message(Message::Text(json_value.to_string())) {
+            match match v.lock() {
+                Ok(v) => v,
+                Err(_) => continue,
+            }
+            .write_message(Message::Text(json_value.to_string()))
+            {
                 Ok(_) => (),
                 Err(e) => {
                     errors.push(Box::new(e));
@@ -227,7 +242,10 @@ impl ChannelImpl for Channel<UdpSocket> {
         let value = json::stringify(value);
         for client in self.registered_client.lock().unwrap().iter_mut() {
             match match &mut client.stream {
-                Some(v) => v,
+                Some(v) => match v.lock() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                },
                 None => continue,
             }
             .write_message(Message::Text(value.clone()))
@@ -261,7 +279,10 @@ impl ChannelImpl for Channel<UdpSocket> {
         let value = json::stringify(value);
         for mut client in clients {
             match match &mut client.stream {
-                Some(v) => v,
+                Some(v) => match v.lock() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                },
                 None => continue,
             }
             .write_message(Message::Text(value.clone()))
@@ -584,15 +605,6 @@ impl QuickSocketInstance {
                         break;
                     }
                     println!("TCP For loop going");
-                    // let instance_accepted = || -> Result<_, Box<dyn std::error::Error>> {
-                    //     Ok(channel.instance.lock()?.incoming())
-                    // }();
-                    // let mut v = match instance_accepted {
-                    //     Ok(v) => v,
-                    //     Err(e) => {
-                    //         return;
-                    //     }
-                    // };
 
                     let instance = match instance {
                         Ok(v) => v,
@@ -604,102 +616,102 @@ impl QuickSocketInstance {
                         Err(_) => continue,
                     };
 
-                    // let stream = match accept(instance) {
-                    //     Ok(v) => v,
-                    //     Err(_) => continue,
-                    // };
-
-                    let mut accepted_client = ChannelClient::new(addr, Some(instance));
+                    let accepted_client = ChannelClient::new(addr, Some(instance));
 
                     let channel_closure_clone = channel.clone();
 
                     thread::spawn(move || {
                         let channel = channel_closure_clone;
-
-                        let val = match match &mut accepted_client.stream {
-                            Some(v) => v,
-                            None => return,
-                        }
-                        .read_message()
-                        {
-                            Ok(v) => {
-                                // let Message(res) = v;
-                                match v.into_text() {
+                        loop {
+                            let val = match match &accepted_client.stream {
+                                Some(v) => match v.lock() {
                                     Ok(v) => v,
-                                    Err(e) => {
-                                        channel.emit_to(
-                                            vec![accepted_client],
-                                            ResponseEvent::Error,
-                                            QuickSocketError::SocketBufferReadFail.jsonify(),
-                                        );
-                                        return;
+                                    Err(_) => return,
+                                },
+                                None => return,
+                            }
+                            .read_message()
+                            {
+                                Ok(v) => {
+                                    // let Message(res) = v;
+                                    match v.into_text() {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            channel.emit_to(
+                                                vec![accepted_client.clone()],
+                                                ResponseEvent::Error,
+                                                QuickSocketError::SocketBufferReadFail.jsonify(),
+                                            );
+                                            return;
+                                        }
                                     }
                                 }
-                            }
-                            Err(e) => {
-                                channel.emit_to(
-                                    vec![accepted_client],
-                                    ResponseEvent::Error,
-                                    QuickSocketError::SocketBufferReadFail.jsonify(),
-                                );
-                                return;
-                            }
-                        };
-
-                        println!("TCP data accepted: {}", &val);
-
-                        let msg = match json::parse(&val) {
-                            Ok(v) => v,
-                            Err(_) => {
-                                channel.emit_to(
-                                    vec![accepted_client],
-                                    ResponseEvent::Error,
-                                    QuickSocketError::JsonParseFail.jsonify(),
-                                );
-                                return;
-                            }
-                        };
-
-                        let event = &msg["event"];
-                        if !event.is_string() {
-                            channel.emit_to(
-                                vec![accepted_client],
-                                ResponseEvent::Error,
-                                QuickSocketError::JsonFormatInvalid.jsonify(),
-                            );
-                            return;
-                        }
-
-                        let event_handler = match channel.event_handlers.get(&event.to_string()) {
-                            Some(v) => v,
-                            None => {
-                                channel.emit_to(
-                                    vec![accepted_client],
-                                    ResponseEvent::Error,
-                                    QuickSocketError::EventNotFound.jsonify(),
-                                );
-                                return;
-                            }
-                        };
-
-                        match event_handler(msg["data"].to_owned()) {
-                            Ok(v) => {
-                                if let Some(value) = v {
+                                Err(e) => {
                                     channel.emit_to(
-                                        vec![accepted_client],
-                                        ResponseEvent::Ok,
-                                        value,
+                                        vec![accepted_client.clone()],
+                                        ResponseEvent::Error,
+                                        QuickSocketError::SocketBufferReadFail.jsonify(),
                                     );
+                                    return;
                                 }
-                                ()
-                            }
-                            Err(e) => {
+                            };
+
+                            println!("TCP data accepted: {}", &val);
+
+                            let msg = match json::parse(&val) {
+                                Ok(v) => v,
+                                Err(_) => {
+                                    channel.emit_to(
+                                        vec![accepted_client.clone()],
+                                        ResponseEvent::Error,
+                                        QuickSocketError::JsonParseFail.jsonify(),
+                                    );
+                                    continue;
+                                }
+                            };
+
+                            let event = &msg["event"];
+                            if !event.is_string() {
                                 channel.emit_to(
-                                    vec![accepted_client],
+                                    vec![accepted_client.clone()],
                                     ResponseEvent::Error,
-                                    e.jsonify(),
+                                    QuickSocketError::JsonFormatInvalid.jsonify(),
                                 );
-                                ()
+                                continue;
+                            }
+
+                            let event_handler = match channel.event_handlers.get(&event.to_string())
+                            {
+                                Some(v) => v,
+                                None => {
+                                    channel.emit_to(
+                                        vec![accepted_client.clone()],
+                                        ResponseEvent::Error,
+                                        QuickSocketError::EventNotFound.jsonify(),
+                                    );
+                                    continue;
+                                }
+                            };
+
+                            match event_handler(msg["data"].to_owned()) {
+                                Ok(v) => {
+                                    if let Some(value) = v {
+                                        channel.emit_to(
+                                            vec![accepted_client.clone()],
+                                            ResponseEvent::Ok,
+                                            value,
+                                        );
+                                    }
+                                    continue;
+                                }
+                                Err(e) => {
+                                    channel.emit_to(
+                                        vec![accepted_client.clone()],
+                                        ResponseEvent::Error,
+                                        e.jsonify(),
+                                    );
+                                    continue;
+                                }
                             }
                         }
                     });
