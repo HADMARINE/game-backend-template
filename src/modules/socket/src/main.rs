@@ -17,7 +17,10 @@ fn main() {
         .register_event_handler("hello".to_string(), tcp_1_hello)
         .unwrap();
     // let channel_2 = lock_instance.create_tcp_channel(|v| {});
-    let udp_channel_1 = lock_instance.create_udp_channel(|v| {});
+    let udp_channel_1 = lock_instance.create_udp_channel(|v| {}).unwrap();
+    udp_channel_1
+        .register_event_handler("hello".to_string(), tcp_1_hello)
+        .unwrap();
     drop(lock_instance);
     loop {}
 }
