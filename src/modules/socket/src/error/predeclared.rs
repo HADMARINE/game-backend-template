@@ -19,6 +19,8 @@ pub enum QuickSocketError {
     InternalServerError,
     InstanceInitializeInvalid,
     ClientDataInvalid,
+    DataResponseFail,
+    EventAlreadyExists,
     Undefined(String),
     Custom(String, String),
 }
@@ -81,6 +83,14 @@ impl QuickSocketError {
             QuickSocketError::ClientDataInvalid => ErrorDetails {
                 code: String::from("CLIENT_DATA_INVALID"),
                 message: String::from("Client data is invalid"),
+            },
+            QuickSocketError::DataResponseFail => ErrorDetails {
+                code: String::from("DATA_RESPONSE_FAIL"),
+                message: String::from("Failed to response data"),
+            },
+            &QuickSocketError::EventAlreadyExists => ErrorDetails {
+                code: String::from("EVENT_ALREADY_EXISTS"),
+                message: String::from("Event already exists"),
             },
         }
     }
