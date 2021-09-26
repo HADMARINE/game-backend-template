@@ -1,5 +1,4 @@
 use crate::error::predeclared::QuickSocketError;
-use crate::util;
 use json::{object, JsonValue};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -267,7 +266,7 @@ impl ChannelImpl for Channel<UdpSocket> {
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
         let locked_registered_client = match self.registered_client.lock() {
             Ok(v) => v.to_vec(),
-            Err(e) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
+            Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
         self.emit_to(locked_registered_client, event, value)
     }
@@ -692,7 +691,7 @@ impl QuickSocketInstance {
                     }();
                     let (size, addr) = match received {
                         Ok(v) => v,
-                        Err(e) => {
+                        Err(_) => {
                             // Cannot emit to errored client because we don't know any data of client.
                             return;
                         }
