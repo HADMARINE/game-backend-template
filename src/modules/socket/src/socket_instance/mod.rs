@@ -108,7 +108,7 @@ pub trait ChannelImpl {
 
 pub struct Channel<T> {
     pub registered_client: Arc<Mutex<Vec<ChannelClient>>>,
-    pub instance: Arc<Mutex<T>>,
+    pub instance: Arc<RwLock<T>>,
     pub channel_id: String,
     pub port: u16,
     event_handlers: Arc<
@@ -296,7 +296,7 @@ impl ChannelImpl for Channel<UdpSocket> {
         };
         let value = json::stringify(value);
         for client in clients {
-            match match self.instance.lock() {
+            match match self.instance.read() {
                 Ok(v) => v,
                 Err(_) => {
                     errors.push(QuickSocketError::ClientDataInvalid.to_box());
@@ -458,11 +458,11 @@ impl QuickSocketInstance {
     ) -> Result<Arc<TcpChannel>, Box<dyn std::error::Error>> {
         let addr = "127.0.0.1:0";
 
-        let sock_ins = Arc::new(Mutex::from(TcpListener::bind(addr)?));
+        let sock_ins = Arc::new(RwLock::from(TcpListener::bind(addr)?));
 
         let locked_tmp = sock_ins.clone();
 
-        let locked_listener = match locked_tmp.lock() {
+        let locked_listener = match locked_tmp.read() {
             Ok(v) => v,
             Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
         };
@@ -510,7 +510,7 @@ impl QuickSocketInstance {
         if *channel.is_event_listener_on.read().unwrap() {
             thread::spawn(move || {
                 println!("TCP Thread spawned!");
-                for instance in channel.instance.lock().unwrap().incoming() {
+                for instance in channel.instance.read().unwrap().incoming() {
                     if *channel.is_destroyed.read().unwrap() {
                         break;
                     }
@@ -650,11 +650,11 @@ impl QuickSocketInstance {
     ) -> Result<Arc<UdpChannel>, Box<dyn std::error::Error>> {
         let addr = "127.0.0.1:0";
 
-        let sock_ins = Arc::new(Mutex::from(UdpSocket::bind(addr)?));
+        let sock_ins = Arc::new(RwLock::from(UdpSocket::bind(addr)?));
 
         let locked_temp = sock_ins.clone();
 
-        let locked_listener = match locked_temp.lock() {
+        let locked_listener = match locked_temp.read() {
             Ok(v) => v,
             Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
         };
@@ -707,7 +707,7 @@ impl QuickSocketInstance {
                     println!("UDP While loop going");
                     let mut buf: [u8; 65535] = [0; 65535];
                     let received = || -> Result<_, Box<dyn std::error::Error>> {
-                        Ok(channel.instance.lock()?.recv_from(&mut buf)?)
+                        Ok(channel.instance.read()?.recv_from(&mut buf)?)
                     }();
                     let (size, addr) = match received {
                         Ok(v) => v,
