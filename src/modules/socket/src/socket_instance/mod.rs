@@ -1,3 +1,5 @@
+#![feature(new_uninit, allocator_api)]
+#![feature(get_mut_unchecked)]
 use crate::error::predeclared::QuickSocketError;
 use json::{object, JsonValue};
 use std::cell::RefCell;
@@ -46,7 +48,7 @@ pub struct QuickSocketInstance {
 pub struct ChannelClient {
     uid: String,
     addr: SocketAddr,
-    stream: Option<Arc<RwLock<WebSocket<TcpStream>>>>,
+    stream: Option<Arc<WebSocket<TcpStream>>>,
 }
 
 impl ChannelClient {
@@ -55,7 +57,7 @@ impl ChannelClient {
             addr,
             stream: match stream {
                 Some(v) => Some(match accept(v) {
-                    Ok(v) => Arc::new(RwLock::from(v)),
+                    Ok(v) => Arc::new(v),
                     Err(e) => panic!(e),
                 }),
                 None => None,
@@ -170,10 +172,7 @@ impl ChannelImpl for Channel<TcpListener> {
                     continue;
                 }
             };
-            let mut write_locked = match v.write() {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
+            let mut write_locked = v.get_mut();
             match write_locked.write_message(Message::Text(json_value.to_string())) {
                 Ok(_) => {
                     drop(write_locked);
@@ -636,32 +635,32 @@ impl QuickSocketInstance {
                         Err(_) => continue,
                     };
 
-                    let accepted_client = ChannelClient::new(addr, Some(instance));
+                    let mut accepted_client = ChannelClient::new(addr, Some(instance));
 
                     let channel_closure_clone = channel.clone();
 
                     thread::spawn(move || {
                         let channel = channel_closure_clone;
                         loop {
-                            let val_pre = match &accepted_client.stream {
+                            let mut val = match accepted_client.stream {
                                 Some(v) => v,
                                 None => return,
                             };
 
-                            match val_pre.read() {
-                                Ok(v) => {
-                                    if !v.can_read() {
-                                        println!("Nothing to read");
-                                        continue;
-                                    }
-                                }
-                                Err(_) => return,
-                            };
+                            // match val_pre.read() {
+                            //     Ok(v) => {
+                            //         // if !v.() {
+                            //         //     println!("Nothing to read");
+                            //         //     continue;
+                            //         // }
+                            //     }
+                            //     Err(_) => return,
+                            // };
 
-                            let mut val = match val_pre.write() {
-                                Ok(v) => v,
-                                Err(_) => return,
-                            };
+                            // let mut val = match val_pre.write() {
+                            //     Ok(v) => v,
+                            //     Err(_) => return,
+                            // };
 
                             let str_val = match val.read_message() {
                                 Ok(v_msg) => {
@@ -847,7 +846,7 @@ impl QuickSocketInstance {
                             println!("UDP Data recieved, {}", &value);
                             let msg = match json::parse(value) {
                                 Ok(v) => v,
-                                Err(e) => {
+                                Err(_) => {
                                     channel.emit_to(
                                         temp_client!(addr),
                                         ResponseEvent::Error,
