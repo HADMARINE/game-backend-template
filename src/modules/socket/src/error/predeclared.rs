@@ -21,6 +21,8 @@ pub enum QuickSocketError {
     ClientDataInvalid,
     DataResponseFail,
     EventAlreadyExists,
+    ClientAlreadyExists,
+    ClientNotRegistered,
     Undefined(String),
     Custom(String, String),
 }
@@ -91,6 +93,14 @@ impl QuickSocketError {
             &QuickSocketError::EventAlreadyExists => ErrorDetails {
                 code: String::from("EVENT_ALREADY_EXISTS"),
                 message: String::from("Event already exists"),
+            },
+            QuickSocketError::ClientAlreadyExists => ErrorDetails {
+                code: String::from("CLIENT_ALREADY_EXISTS"),
+                message: String::from("Client already exists"),
+            },
+            QuickSocketError::ClientNotRegistered => ErrorDetails {
+                code: String::from("CLIENT_NOT_REGISTERED"),
+                message: String::from("Client is not registered"),
             },
         }
     }

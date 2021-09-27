@@ -46,7 +46,7 @@ pub struct QuickSocketInstance {
 pub struct ChannelClient {
     uid: String,
     addr: SocketAddr,
-    stream: Option<Arc<Mutex<WebSocket<TcpStream>>>>,
+    stream: Option<Arc<RwLock<WebSocket<TcpStream>>>>,
 }
 
 impl ChannelClient {
@@ -55,7 +55,7 @@ impl ChannelClient {
             addr,
             stream: match stream {
                 Some(v) => Some(match accept(v) {
-                    Ok(v) => Arc::new(Mutex::from(v)),
+                    Ok(v) => Arc::new(RwLock::from(v)),
                     Err(e) => panic!(e),
                 }),
                 None => None,
@@ -104,12 +104,16 @@ pub trait ChannelImpl {
     ) -> Result<(), Vec<Box<dyn std::error::Error>>>;
     fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>>;
     fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>>;
-    fn register_client(&self, client: ChannelClient) -> Result<(), Box<dyn std::error::Error>>;
-    fn reconnect_client_by_uid(&self, uid: String, client: ChannelClient) -> Result<(), Box<dyn std::error::Error>>;
+    fn register_client(&self, client: ChannelClient) -> Result<(), Box<dyn std::error::Error>>; // cmp uid & ip & port
+    fn reconnect_client_by_uid(
+        &self,
+        uid: String,
+        client: ChannelClient,
+    ) -> Result<(), Box<dyn std::error::Error>>; // cmp uid
 }
 
 pub struct Channel<T> {
-    pub registered_client: Arc<Mutex<Vec<ChannelClient>>>,
+    pub registered_client: Arc<RwLock<Vec<ChannelClient>>>,
     pub instance: Arc<RwLock<T>>,
     pub channel_id: String,
     pub port: u16,
@@ -136,7 +140,7 @@ impl ChannelImpl for Channel<TcpListener> {
         event: ResponseEvent,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        let clients = match self.registered_client.lock() {
+        let clients = match self.registered_client.read() {
             Ok(v) => v.to_vec(),
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
@@ -166,14 +170,17 @@ impl ChannelImpl for Channel<TcpListener> {
                     continue;
                 }
             };
-            match match v.lock() {
+            let mut write_locked = match v.write() {
                 Ok(v) => v,
                 Err(_) => continue,
-            }
-            .write_message(Message::Text(json_value.to_string()))
-            {
-                Ok(_) => (),
+            };
+            match write_locked.write_message(Message::Text(json_value.to_string())) {
+                Ok(_) => {
+                    drop(write_locked);
+                    ()
+                }
                 Err(e) => {
+                    drop(write_locked);
                     errors.push(Box::new(e));
                     continue;
                 }
@@ -221,7 +228,7 @@ impl ChannelImpl for Channel<TcpListener> {
         search_clients: Vec<ChannelClient>,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
         let registered_client_clone = self.registered_client.clone();
-        let mut clients_pre = match registered_client_clone.lock() {
+        let mut clients_pre = match registered_client_clone.write() {
             Ok(v) => v,
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
@@ -246,7 +253,7 @@ impl ChannelImpl for Channel<TcpListener> {
     }
 
     fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        let mut client = match self.registered_client.lock() {
+        let mut client = match self.registered_client.write() {
             Ok(v) => v,
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
@@ -272,7 +279,56 @@ impl ChannelImpl for Channel<TcpListener> {
     }
 
     fn register_client(&self, client: ChannelClient) -> Result<(), Box<dyn std::error::Error>> {
-        self.registered_client.lock().
+        let mut locked_client_list = match self.registered_client.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+        println!("register 1");
+
+        let cloned_client = client.clone();
+
+        println!("register 2");
+
+        if locked_client_list
+            .iter()
+            .find(move |v| {
+                if v.addr == cloned_client.addr || v.uid == cloned_client.uid {
+                    return true;
+                }
+                false
+            })
+            .is_some()
+        {
+            return Err(QuickSocketError::ClientAlreadyExists.to_box());
+        };
+        println!("register 3");
+
+        locked_client_list.push(client);
+        drop(locked_client_list);
+        println!("register 4");
+
+        return Ok(());
+    }
+
+    fn reconnect_client_by_uid(
+        &self,
+        uid: String,
+        new_client: ChannelClient,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut locked_client_list = match self.registered_client.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+
+        let found_client = locked_client_list.iter_mut().find(move |v| v.uid == uid);
+        if found_client.is_some() {
+            let found_client = match found_client {
+                Some(v) => v,
+                None => return Err(QuickSocketError::ClientNotRegistered.to_box()),
+            };
+            std::mem::replace(found_client, new_client);
+        };
+        Ok(())
     }
 }
 
@@ -282,7 +338,7 @@ impl ChannelImpl for Channel<UdpSocket> {
         event: ResponseEvent,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        let locked_registered_client = match self.registered_client.lock() {
+        let locked_registered_client = match self.registered_client.read() {
             Ok(v) => v.to_vec(),
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
@@ -328,7 +384,7 @@ impl ChannelImpl for Channel<UdpSocket> {
         search_clients: Vec<ChannelClient>,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
         let registered_client_clone = self.registered_client.clone();
-        let mut clients_pre = match registered_client_clone.lock() {
+        let mut clients_pre = match registered_client_clone.write() {
             Ok(v) => v,
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
@@ -353,7 +409,7 @@ impl ChannelImpl for Channel<UdpSocket> {
     }
 
     fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>> {
-        let mut client = match self.registered_client.lock() {
+        let mut client = match self.registered_client.write() {
             Ok(v) => v,
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
@@ -401,6 +457,52 @@ impl ChannelImpl for Channel<UdpSocket> {
             Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
         }
         .insert(event, func);
+        Ok(())
+    }
+
+    fn register_client(&self, client: ChannelClient) -> Result<(), Box<dyn std::error::Error>> {
+        let mut locked_client_list = match self.registered_client.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+
+        let cloned_client = client.clone();
+
+        if locked_client_list
+            .iter()
+            .find(move |v| {
+                if v.addr == cloned_client.addr || v.uid == cloned_client.uid {
+                    return true;
+                }
+                false
+            })
+            .is_some()
+        {
+            return Err(QuickSocketError::ClientAlreadyExists.to_box());
+        };
+
+        locked_client_list.push(client);
+        Ok(())
+    }
+
+    fn reconnect_client_by_uid(
+        &self,
+        uid: String,
+        new_client: ChannelClient,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut locked_client_list = match self.registered_client.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+
+        let found_client = locked_client_list.iter_mut().find(move |v| v.uid == uid);
+        if found_client.is_some() {
+            let found_client = match found_client {
+                Some(v) => v,
+                None => return Err(QuickSocketError::ClientNotRegistered.to_box()),
+            };
+            std::mem::replace(found_client, new_client);
+        };
         Ok(())
     }
 }
@@ -480,7 +582,7 @@ impl QuickSocketInstance {
         let mut channel = TcpChannel {
             channel_id: Uuid::new_v4().to_string(),
             instance: sock_ins,
-            registered_client: Arc::new(Mutex::from(vec![])),
+            registered_client: Arc::new(RwLock::from(vec![])),
             port,
             event_handlers: Arc::new(RwLock::from(HashMap::new())),
             is_destroyed: Arc::new(RwLock::from(false)),
@@ -511,6 +613,8 @@ impl QuickSocketInstance {
             }
         };
 
+        drop(mutex);
+
         let channel_clone = channel.clone();
 
         if *channel.is_event_listener_on.read().unwrap() {
@@ -539,19 +643,31 @@ impl QuickSocketInstance {
                     thread::spawn(move || {
                         let channel = channel_closure_clone;
                         loop {
-                            let val = match match &accepted_client.stream {
-                                Some(v) => match v.lock() {
-                                    Ok(v) => v,
-                                    Err(_) => return,
-                                },
+                            let val_pre = match &accepted_client.stream {
+                                Some(v) => v,
                                 None => return,
-                            }
-                            .read_message()
-                            {
+                            };
+
+                            match val_pre.read() {
                                 Ok(v) => {
-                                    // let Message(res) = v;
-                                    match v.into_text() {
-                                        Ok(v) => v,
+                                    if !v.can_read() {
+                                        println!("Nothing to read");
+                                        continue;
+                                    }
+                                }
+                                Err(_) => return,
+                            };
+
+                            let mut val = match val_pre.write() {
+                                Ok(v) => v,
+                                Err(_) => return,
+                            };
+
+                            let str_val = match val.read_message() {
+                                Ok(v_msg) => {
+                                    drop(val);
+                                    match v_msg.into_text() {
+                                        Ok(str_val) => str_val,
                                         Err(e) => {
                                             channel.emit_to(
                                                 vec![accepted_client.clone()],
@@ -562,7 +678,7 @@ impl QuickSocketInstance {
                                         }
                                     }
                                 }
-                                Err(e) => {
+                                Err(_) => {
                                     channel.emit_to(
                                         vec![accepted_client.clone()],
                                         ResponseEvent::Error,
@@ -572,9 +688,9 @@ impl QuickSocketInstance {
                                 }
                             };
 
-                            println!("TCP data accepted: {}", &val);
+                            println!("TCP data accepted: {}", &str_val);
 
-                            let msg = match json::parse(&val) {
+                            let msg = match json::parse(&str_val) {
                                 Ok(v) => v,
                                 Err(_) => {
                                     channel.emit_to(
@@ -645,8 +761,6 @@ impl QuickSocketInstance {
 
         println!("TCP Channel opened on port : {}", channel_clone.port);
 
-        drop(mutex);
-
         Ok(channel_clone)
     }
 
@@ -672,7 +786,7 @@ impl QuickSocketInstance {
         let mut channel = UdpChannel {
             channel_id: Uuid::new_v4().to_string(),
             instance: sock_ins,
-            registered_client: Arc::new(Mutex::from(vec![])),
+            registered_client: Arc::new(RwLock::from(vec![])),
             port,
             event_handlers: Arc::new(RwLock::from(HashMap::new())),
             is_destroyed: Arc::new(RwLock::from(false)),
