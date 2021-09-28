@@ -173,7 +173,8 @@ impl ChannelImpl for Channel<TcpListener> {
                 }
             };
             let mut write_locked = v.get_mut();
-            let new_ws = match write_locked.write_message(Message::Text(json_value.to_string())) {
+            let new_ws = None;
+            match write_locked.write_message(Message::Text(json_value.to_string())) {
                 Ok(_) => {
                     drop(write_locked);
                     ()
