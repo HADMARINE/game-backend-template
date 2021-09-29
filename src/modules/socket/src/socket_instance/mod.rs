@@ -2,15 +2,19 @@
 #![feature(get_mut_unchecked)]
 use crate::error::predeclared::QuickSocketError;
 use json::{object, JsonValue};
+use mio::net::{TcpListener, TcpStream};
+use mio::{Events, Interest, Poll, Token};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
+use std::time::Duration;
 use std::{clone, net};
-use tungstenite::{accept, Message, WebSocket};
+use tungstenite::handshake::server::NoCallback;
+use tungstenite::{accept, HandshakeError, Message, ServerHandshake, WebSocket};
 use uuid::Uuid;
 
 use self::event::ResponseEvent;
@@ -48,22 +52,26 @@ pub struct QuickSocketInstance {
 pub struct ChannelClient {
     uid: String,
     addr: SocketAddr,
-    stream: Option<Arc<WebSocket<TcpStream>>>,
+    stream: Option<Arc<RwLock<WebSocket<TcpStream>>>>,
 }
 
 impl ChannelClient {
-    pub fn new(addr: SocketAddr, stream: Option<TcpStream>) -> Self {
-        ChannelClient {
+    pub fn new(
+        addr: SocketAddr,
+        stream: Option<TcpStream>,
+    ) -> Result<Self, HandshakeError<ServerHandshake<TcpStream, NoCallback>>> {
+        let cl = ChannelClient {
             addr,
             stream: match stream {
                 Some(v) => Some(match accept(v) {
-                    Ok(v) => Arc::new(v),
-                    Err(e) => panic!(e),
+                    Ok(v) => Arc::new(RwLock::from(v)),
+                    Err(e) => return Err(e),
                 }),
                 None => None,
             },
             uid: Uuid::new_v4().to_string(),
-        }
+        };
+        Ok(cl)
     }
 }
 
@@ -172,8 +180,10 @@ impl ChannelImpl for Channel<TcpListener> {
                     continue;
                 }
             };
-            let mut write_locked = v.get_mut();
-            let new_ws = None;
+            let mut write_locked = match v.write() {
+                Ok(v) => v,
+                Err(_) => return Err(vec![QuickSocketError::ChannelInitializeFail.to_box()]),
+            };
             match write_locked.write_message(Message::Text(json_value.to_string())) {
                 Ok(_) => {
                     drop(write_locked);
@@ -564,9 +574,21 @@ impl QuickSocketInstance {
         &self,
         setter: fn(&mut TcpChannel),
     ) -> Result<Arc<TcpChannel>, Box<dyn std::error::Error>> {
-        let addr = "127.0.0.1:0";
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
 
-        let sock_ins = Arc::new(RwLock::from(TcpListener::bind(addr)?));
+        let mut listener = TcpListener::bind(addr)?;
+
+        let port = listener.local_addr()?.port();
+
+        let mut poll = Poll::new()?;
+        let mut events = Events::with_capacity(65535);
+
+        poll.registry()
+            .register(&mut listener, Token(0), Interest::READABLE)?;
+
+        poll.poll(&mut events, Some(Duration::from_millis(100)))?;
+
+        let sock_ins = Arc::new(RwLock::from(listener));
 
         let locked_tmp = sock_ins.clone();
 
@@ -574,8 +596,6 @@ impl QuickSocketInstance {
             Ok(v) => v,
             Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
         };
-
-        let port = locked_listener.local_addr()?.port();
 
         drop(locked_listener);
 
@@ -609,7 +629,7 @@ impl QuickSocketInstance {
         let channel = match mutex.get_mut(&channel_id) {
             Some(v) => v.clone(),
             None => {
-                return Err(Box::new(QuickSocketError::ChannelInitializeFail));
+                return Err(QuickSocketError::ChannelInitializeFail.to_box());
             }
         };
 
@@ -620,30 +640,35 @@ impl QuickSocketInstance {
         if *channel.is_event_listener_on.read().unwrap() {
             thread::spawn(move || {
                 println!("TCP Thread spawned!");
-                for instance in channel.instance.read().unwrap().incoming() {
+
+                loop {
+                    let (mut stream, addr) = match channel.instance.read().unwrap().accept() {
+                        Ok(v) => v,
+                        Err(_) => {
+                            // println!("Nothing to write, continuing...");
+                            continue;
+                        }
+                    };
+
+                    println!("TCP Conn : addr: {}", &addr.to_string());
+
+                    // let v = accept(stream).unwrap();
+
                     if *channel.is_destroyed.read().unwrap() {
-                        break;
+                        return;
                     }
-                    println!("TCP For loop going");
 
-                    let instance = match instance {
+                    let accepted_client = match ChannelClient::new(addr, Some(stream)) {
                         Ok(v) => v,
                         Err(_) => continue,
                     };
-
-                    let addr = match instance.local_addr() {
-                        Ok(v) => v,
-                        Err(_) => continue,
-                    };
-
-                    let mut accepted_client = ChannelClient::new(addr, Some(instance));
 
                     let channel_closure_clone = channel.clone();
 
                     thread::spawn(move || {
                         let channel = channel_closure_clone;
                         loop {
-                            let mut val = match accepted_client.stream {
+                            let val = match accepted_client.stream.clone() {
                                 Some(v) => v,
                                 None => return,
                             };
@@ -663,9 +688,14 @@ impl QuickSocketInstance {
                             //     Err(_) => return,
                             // };
 
-                            let str_val = match val.read_message() {
+                            let mut locked_socket = match val.write() {
+                                Ok(v) => v,
+                                Err(_) => return,
+                            };
+
+                            let str_val = match locked_socket.read_message() {
                                 Ok(v_msg) => {
-                                    drop(val);
+                                    drop(locked_socket);
                                     match v_msg.into_text() {
                                         Ok(str_val) => str_val,
                                         Err(e) => {

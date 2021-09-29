@@ -19,6 +19,7 @@ json = "0.12.4"
 futures = {version = "0.3.17"}
 uuid = {version = "0.8.2", features = ["v4","v5"]}
 tungstenite = "0.15.0"
+mio = "0.7"
 
 [dependencies.neon]
 version = "0.9"
