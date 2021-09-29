@@ -1,5 +1,3 @@
-#![feature(new_uninit, allocator_api)]
-#![feature(get_mut_unchecked)]
 use crate::error::predeclared::QuickSocketError;
 use json::{object, JsonValue};
 use std::cell::RefCell;
