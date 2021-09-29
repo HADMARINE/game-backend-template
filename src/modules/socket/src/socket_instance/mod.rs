@@ -4,7 +4,7 @@ use crate::error::predeclared::QuickSocketError;
 use json::{object, JsonValue};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
@@ -635,7 +635,7 @@ impl QuickSocketInstance {
                     };
 
                     // &instance.set_nonblocking(true);
-                    &instance.set_read_timeout(Some(Duration::from_secs(5)));
+                    &instance.set_read_timeout(Some(Duration::from_millis(100)));
 
                     let addr = match instance.local_addr() {
                         Ok(v) => v,
@@ -674,7 +674,21 @@ impl QuickSocketInstance {
                                         }
                                     }
                                 }
-                                Err(_) => {
+                                Err(e) => {
+                                    drop(write_locked);
+
+                                    let res = match e {
+                                        tungstenite::Error::Io(e_io) => {
+                                            e_io.kind() == ErrorKind::WouldBlock
+                                        }
+                                        _ => false,
+                                    };
+
+                                    if res == true {
+                                        thread::sleep(Duration::from_millis(10));
+                                        continue;
+                                    }
+
                                     channel.emit_to(
                                         vec![accepted_client.clone()],
                                         ResponseEvent::Error,
