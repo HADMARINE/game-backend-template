@@ -4,11 +4,12 @@ use crate::error::predeclared::QuickSocketError;
 use json::{object, JsonValue};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
+use std::time::Duration;
 use std::{clone, net};
 use tungstenite::{accept, Message, WebSocket};
 use uuid::Uuid;
@@ -48,7 +49,7 @@ pub struct QuickSocketInstance {
 pub struct ChannelClient {
     uid: String,
     addr: SocketAddr,
-    stream: Option<Arc<WebSocket<TcpStream>>>,
+    stream: Option<Arc<RwLock<WebSocket<TcpStream>>>>,
 }
 
 impl ChannelClient {
@@ -57,7 +58,7 @@ impl ChannelClient {
             addr,
             stream: match stream {
                 Some(v) => Some(match accept(v) {
-                    Ok(v) => Arc::new(v),
+                    Ok(v) => Arc::new(RwLock::from(v)),
                     Err(e) => panic!(e),
                 }),
                 None => None,
@@ -172,8 +173,10 @@ impl ChannelImpl for Channel<TcpListener> {
                     continue;
                 }
             };
-            let mut write_locked = v.get_mut();
-            let new_ws = None;
+            let mut write_locked = match v.write() {
+                Ok(v) => v,
+                Err(_) => return Err(vec![QuickSocketError::ChannelInitializeFail.to_box()]),
+            };
             match write_locked.write_message(Message::Text(json_value.to_string())) {
                 Ok(_) => {
                     drop(write_locked);
@@ -631,6 +634,9 @@ impl QuickSocketInstance {
                         Err(_) => continue,
                     };
 
+                    // &instance.set_nonblocking(true);
+                    &instance.set_read_timeout(Some(Duration::from_millis(100)));
+
                     let addr = match instance.local_addr() {
                         Ok(v) => v,
                         Err(_) => continue,
@@ -643,29 +649,19 @@ impl QuickSocketInstance {
                     thread::spawn(move || {
                         let channel = channel_closure_clone;
                         loop {
-                            let mut val = match accepted_client.stream {
+                            let mut val = match accepted_client.stream.clone() {
                                 Some(v) => v,
                                 None => return,
                             };
 
-                            // match val_pre.read() {
-                            //     Ok(v) => {
-                            //         // if !v.() {
-                            //         //     println!("Nothing to read");
-                            //         //     continue;
-                            //         // }
-                            //     }
-                            //     Err(_) => return,
-                            // };
+                            let mut write_locked = match val.write() {
+                                Ok(v) => v,
+                                Err(_) => return,
+                            };
 
-                            // let mut val = match val_pre.write() {
-                            //     Ok(v) => v,
-                            //     Err(_) => return,
-                            // };
-
-                            let str_val = match val.read_message() {
+                            let str_val = match write_locked.read_message() {
                                 Ok(v_msg) => {
-                                    drop(val);
+                                    drop(write_locked);
                                     match v_msg.into_text() {
                                         Ok(str_val) => str_val,
                                         Err(e) => {
@@ -678,7 +674,21 @@ impl QuickSocketInstance {
                                         }
                                     }
                                 }
-                                Err(_) => {
+                                Err(e) => {
+                                    drop(write_locked);
+
+                                    let res = match e {
+                                        tungstenite::Error::Io(e_io) => {
+                                            e_io.kind() == ErrorKind::WouldBlock
+                                        }
+                                        _ => false,
+                                    };
+
+                                    if res == true {
+                                        thread::sleep(Duration::from_millis(10));
+                                        continue;
+                                    }
+
                                     channel.emit_to(
                                         vec![accepted_client.clone()],
                                         ResponseEvent::Error,
