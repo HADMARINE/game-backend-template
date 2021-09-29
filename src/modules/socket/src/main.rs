@@ -12,20 +12,37 @@ fn main() {
     let instance = QuickSocketInstance::new();
     println!("INSTANCE INITIALIZED");
     let lock_instance = instance.write().unwrap();
-    let tcp_channel_1 = lock_instance.create_tcp_channel(|v| {}).unwrap();
+    let tcp_channel_1 = lock_instance.create_tcp_channel(|v| {}, true).unwrap();
+    let tcp_channel_2 = lock_instance.create_tcp_channel(|v| {}, false).unwrap();
+
     tcp_channel_1
         .register_event_handler("hello".to_string(), tcp_1_hello)
         .unwrap();
-    tcp_channel_1.register_event_handler("register".to_string(), register);
+    tcp_channel_1
+        .register_event_handler("register".to_string(), register)
+        .unwrap();
+    tcp_channel_2
+        .register_event_handler("register".to_string(), register)
+        .unwrap();
     let udp_channel_1 = lock_instance.create_udp_channel(|v| {}).unwrap();
     udp_channel_1
         .register_event_handler("hello".to_string(), tcp_1_hello)
         .unwrap();
     let tcp_channel_1_clone = tcp_channel_1.clone();
+    let tcp_channel_2_clone = tcp_channel_2.clone();
 
     drop(lock_instance);
     thread::spawn(move || loop {
         tcp_channel_1_clone
+            .emit_all(
+                ResponseEvent::Data,
+                object! {
+                    event:"world_data".to_string(),
+                    data: [123,123,123,0]
+                },
+            )
+            .unwrap();
+        tcp_channel_2_clone
             .emit_all(
                 ResponseEvent::Data,
                 object! {

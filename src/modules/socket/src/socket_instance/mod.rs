@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 use std::{clone, net};
+use tracing::field::debug;
 use tungstenite::{accept, Message, WebSocket};
 use uuid::Uuid;
 
@@ -190,7 +191,7 @@ impl ChannelImpl for Channel<TcpListener> {
         if errors.len() == 0 {
             Ok(())
         } else {
-            println!("Error!");
+            log::debug!("Error!");
             for er in &errors {
                 eprintln!("Error : {}", er);
             }
@@ -284,11 +285,8 @@ impl ChannelImpl for Channel<TcpListener> {
             Ok(v) => v,
             Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
         };
-        println!("register 1");
 
         let cloned_client = client.clone();
-
-        println!("register 2");
 
         if locked_client_list
             .iter()
@@ -302,11 +300,9 @@ impl ChannelImpl for Channel<TcpListener> {
         {
             return Err(QuickSocketError::ClientAlreadyExists.to_box());
         };
-        println!("register 3");
 
         locked_client_list.push(client);
         drop(locked_client_list);
-        println!("register 4");
 
         return Ok(());
     }
@@ -564,6 +560,7 @@ impl QuickSocketInstance {
     pub fn create_tcp_channel(
         &self,
         setter: fn(&mut TcpChannel),
+        is_concurrent: bool,
     ) -> Result<Arc<TcpChannel>, Box<dyn std::error::Error>> {
         let addr = "127.0.0.1:0";
 
@@ -620,12 +617,12 @@ impl QuickSocketInstance {
 
         if *channel.is_event_listener_on.read().unwrap() {
             thread::spawn(move || {
-                println!("TCP Thread spawned!");
+                log::debug!("TCP Thread spawned");
                 for instance in channel.instance.read().unwrap().incoming() {
                     if *channel.is_destroyed.read().unwrap() {
                         break;
                     }
-                    println!("TCP For loop going");
+                    log::debug!("TCP For loop going");
 
                     let instance = match instance {
                         Ok(v) => v,
@@ -633,14 +630,16 @@ impl QuickSocketInstance {
                     };
 
                     // &instance.set_nonblocking(true);
-                    &instance.set_read_timeout(Some(Duration::from_millis(100)));
+                    if is_concurrent {
+                        &instance.set_read_timeout(Some(Duration::from_millis(100)));
+                    }
 
                     let addr = match instance.local_addr() {
                         Ok(v) => v,
                         Err(_) => continue,
                     };
 
-                    let mut accepted_client = ChannelClient::new(addr, Some(instance));
+                    let accepted_client = ChannelClient::new(addr, Some(instance));
 
                     let channel_closure_clone = channel.clone();
 
@@ -696,7 +695,7 @@ impl QuickSocketInstance {
                                 }
                             };
 
-                            println!("TCP data accepted: {}", &str_val);
+                            log::debug!("TCP data accepted: {}", &str_val);
 
                             let msg = match json::parse(&str_val) {
                                 Ok(v) => v,
@@ -830,9 +829,8 @@ impl QuickSocketInstance {
 
         if *channel.is_event_listener_on.read().unwrap() {
             thread::spawn(move || {
-                println!("UDP Thread spawned!");
+                log::debug!("UDP Thread spawned!");
                 while !*channel.is_destroyed.read().unwrap() {
-                    println!("UDP While loop going");
                     let mut buf: [u8; 65535] = [0; 65535];
                     let received = || -> Result<_, Box<dyn std::error::Error>> {
                         Ok(channel.instance.read()?.recv_from(&mut buf)?)
@@ -852,7 +850,6 @@ impl QuickSocketInstance {
                         let channel = channel_closure_clone;
 
                         if let Ok(value) = std::str::from_utf8(buf) {
-                            println!("UDP Data recieved, {}", &value);
                             let msg = match json::parse(value) {
                                 Ok(v) => v,
                                 Err(_) => {
