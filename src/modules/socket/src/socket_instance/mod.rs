@@ -627,7 +627,7 @@ impl QuickSocketInstance {
                     };
 
                     if is_concurrent {
-                        &instance.set_read_timeout(Some(Duration::from_millis(10)));
+                        &instance.set_read_timeout(Some(Duration::from_millis(50)));
                     }
 
                     let addr = match instance.local_addr() {
