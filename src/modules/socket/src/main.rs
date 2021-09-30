@@ -21,6 +21,9 @@ fn main() {
     tcp_channel_1
         .register_event_handler("register".to_string(), register)
         .unwrap();
+    tcp_channel_1
+        .register_event_handler("deregister".to_string(), deregister)
+        .unwrap();
     tcp_channel_2
         .register_event_handler("register".to_string(), register)
         .unwrap();
@@ -72,7 +75,46 @@ fn register(
     c: ChannelClient,
 ) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
     println!("register");
-    ch.register_client(c).unwrap();
+    match ch.register_client(c.clone()) {
+        Ok(v) => (),
+        Err(e) => {
+            // match e {
+            //     QuickSocketError => ch.emit_to(c, ResponseEvent::Error, e.jsonify()),
+            // };
+            // if e == QuickSocketError {}
+
+            ch.emit_to(
+                vec![c],
+                ResponseEvent::Error,
+                object! {
+                    data: String::from("Client already exists!")
+                },
+            );
+        }
+    };
     // ch.emit_to(c, event::ResponseEvent::Ok, JsonValue::Null);
+    Ok(None)
+}
+
+fn deregister(
+    ch: Arc<dyn ChannelImpl>,
+    v: JsonValue,
+    c: ChannelClient,
+) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
+    println!("deregister");
+
+    match ch.disconnect_certain(vec![c.clone()]) {
+        Ok(v) => (),
+        Err(e) => {
+            ch.emit_to(
+                vec![c],
+                ResponseEvent::Error,
+                object! {
+                    data:String::from("Disconnect failed")
+                },
+            );
+        }
+    };
+
     Ok(None)
 }

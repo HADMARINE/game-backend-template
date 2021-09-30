@@ -243,7 +243,7 @@ impl ChannelImpl for Channel<TcpListener> {
             for cmp_client in search_clients.borrow().iter() {
                 if client.uid == cmp_client.uid {
                     search_clients
-                        .borrow_mut()
+                        .borrow_mut() // !todo : fix panicking bc of multi borrowing
                         .retain(|cmp_client_babe| cmp_client_babe.uid != cmp_client.uid);
                     return false;
                 }
@@ -631,7 +631,7 @@ impl QuickSocketInstance {
 
                     // &instance.set_nonblocking(true);
                     if is_concurrent {
-                        &instance.set_read_timeout(Some(Duration::from_millis(100)));
+                        &instance.set_read_timeout(Some(Duration::from_millis(10)));
                     }
 
                     let addr = match instance.local_addr() {
@@ -676,7 +676,9 @@ impl QuickSocketInstance {
 
                                     let res = match e {
                                         tungstenite::Error::Io(e_io) => {
-                                            e_io.kind() == ErrorKind::WouldBlock
+                                            let v = e_io.kind() == ErrorKind::WouldBlock
+                                                || e_io.kind() == ErrorKind::TimedOut;
+                                            v
                                         }
                                         _ => false,
                                     };
