@@ -23,6 +23,7 @@ pub enum QuickSocketError {
     EventAlreadyExists,
     ClientAlreadyExists,
     ClientNotRegistered,
+    ConnectionClosed(String),
     Undefined(String),
     Custom(String, String),
 }
@@ -101,6 +102,10 @@ impl QuickSocketError {
             QuickSocketError::ClientNotRegistered => ErrorDetails {
                 code: String::from("CLIENT_NOT_REGISTERED"),
                 message: String::from("Client is not registered"),
+            },
+            QuickSocketError::ConnectionClosed(v) => ErrorDetails {
+                code: String::from("CONNECTION_CLOSED"),
+                message: String::from(format!("Connection closed (UID : {})", v)),
             },
         }
     }

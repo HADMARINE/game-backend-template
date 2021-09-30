@@ -143,7 +143,10 @@ impl ChannelImpl for Channel<TcpListener> {
             Ok(v) => v.to_vec(),
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
-        self.emit_to(clients, event, value)
+        match self.emit_to(clients, event, value) {
+            Ok(v) => (),
+            Err(e) => e,
+        }
     }
 
     fn emit_to(
@@ -180,8 +183,17 @@ impl ChannelImpl for Channel<TcpListener> {
                 }
                 Err(e) => {
                     drop(write_locked);
-                    errors.push(Box::new(e));
-                    continue;
+                    match e {
+                        tungstenite::Error::AlreadyClosed => {
+                            errors.push(Box::new(QuickSocketError::ConnectionClosed(
+                                client.uid.clone(),
+                            )));
+                        }
+                        _ => {
+                            errors.push(Box::new(e));
+                            continue;
+                        }
+                    }
                 }
             };
         }
