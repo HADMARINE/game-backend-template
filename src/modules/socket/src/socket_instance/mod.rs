@@ -52,14 +52,11 @@ pub struct ChannelClient {
 }
 
 impl ChannelClient {
-    pub fn new(addr: SocketAddr, stream: Option<TcpStream>) -> Self {
+    pub fn new(addr: SocketAddr, stream: Option<WebSocket<TcpStream>>) -> Self {
         ChannelClient {
             addr,
             stream: match stream {
-                Some(v) => Some(match accept(v) {
-                    Ok(v) => Arc::new(RwLock::from(v)),
-                    Err(e) => panic!(e),
-                }),
+                Some(v) => Some(Arc::new(RwLock::from(v))),
                 None => None,
             },
             uid: Uuid::new_v4().to_string(),
@@ -242,9 +239,9 @@ impl ChannelImpl for Channel<TcpListener> {
         clients.retain(|client| {
             for cmp_client in search_clients.borrow().iter() {
                 if client.uid == cmp_client.uid {
-                    search_clients
-                        .borrow_mut() // !todo : fix panicking bc of multi borrowing
-                        .retain(|cmp_client_babe| cmp_client_babe.uid != cmp_client.uid);
+                    // search_clients
+                    //     .borrow_mut() // !todo : fix panicking bc of multi borrowing
+                    //     .retain(|cmp_client_babe| cmp_client_babe.uid != cmp_client.uid);
                     return false;
                 }
             }
@@ -629,9 +626,8 @@ impl QuickSocketInstance {
                         Err(_) => continue,
                     };
 
-                    // &instance.set_nonblocking(true);
                     if is_concurrent {
-                        &instance.set_read_timeout(Some(Duration::from_millis(10)));
+                        &instance.set_read_timeout(Some(Duration::from_millis(50)));
                     }
 
                     let addr = match instance.local_addr() {
@@ -639,7 +635,15 @@ impl QuickSocketInstance {
                         Err(_) => continue,
                     };
 
-                    let accepted_client = ChannelClient::new(addr, Some(instance));
+                    let ws = match accept(instance) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("Error from handshake...{}", e);
+                            continue;
+                        }
+                    };
+
+                    let accepted_client = ChannelClient::new(addr, Some(ws));
 
                     let channel_closure_clone = channel.clone();
 
@@ -676,8 +680,8 @@ impl QuickSocketInstance {
 
                                     let res = match e {
                                         tungstenite::Error::Io(e_io) => {
-                                            let v = e_io.kind() == ErrorKind::WouldBlock
-                                                || e_io.kind() == ErrorKind::TimedOut;
+                                            let v = e_io.kind() == ErrorKind::WouldBlock;
+                                            // || e_io.kind() == ErrorKind::TimedOut;
                                             v
                                         }
                                         _ => false,
