@@ -144,8 +144,11 @@ impl ChannelImpl for Channel<TcpListener> {
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
         match self.emit_to(clients, event, value) {
-            Ok(v) => (),
-            Err(e) => e,
+            Ok(v) => Ok(()),
+            Err(e) => match e {
+                QuickSocketError::ConnectionClosed(uid) => Err(e),
+                _ => Err(e),
+            },
         }
     }
 
