@@ -27,7 +27,9 @@ fn main() {
     tcp_channel_2
         .register_event_handler("register".to_string(), register)
         .unwrap();
-    let udp_channel_1 = lock_instance.create_udp_channel(|v| {}).unwrap();
+    let udp_channel_1 = lock_instance
+        .create_udp_channel(|v| {}, UdpChannelCreatePreferences::default())
+        .unwrap();
     udp_channel_1
         .register_event_handler("hello".to_string(), tcp_1_hello)
         .unwrap();

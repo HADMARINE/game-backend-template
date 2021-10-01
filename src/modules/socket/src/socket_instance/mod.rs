@@ -65,6 +65,47 @@ impl ChannelClient {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct TcpChannelCreatePreferences {
+    delete_client_when_closed: bool,
+    concurrent: bool,
+}
+
+impl TcpChannelCreatePreferences {
+    pub fn to_std_pref(&self) -> ChannelCreatePreferences {
+        ChannelCreatePreferences {
+            delete_client_when_closed: self.delete_client_when_closed,
+            concurrent: self.concurrent,
+        }
+    }
+
+    pub fn default() -> TcpChannelCreatePreferences {
+        TcpChannelCreatePreferences {
+            delete_client_when_closed: true,
+            concurrent: false,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug)]
+pub struct UdpChannelCreatePreferences {
+    delete_client_when_closed: bool,
+}
+
+impl UdpChannelCreatePreferences {
+    pub fn to_std_pref(&self) -> ChannelCreatePreferences {
+        ChannelCreatePreferences {
+            delete_client_when_closed: self.delete_client_when_closed,
+            concurrent: false,
+        }
+    }
+
+    pub fn default() -> UdpChannelCreatePreferences {
+        UdpChannelCreatePreferences {
+            delete_client_when_closed: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ChannelCreatePreferences {
     delete_client_when_closed: bool,
@@ -111,6 +152,10 @@ pub trait ChannelImpl {
     fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>>;
     fn destroy_channel(&self) -> Result<(), Box<dyn std::error::Error>>;
     fn register_client(&self, client: ChannelClient) -> Result<(), Box<dyn std::error::Error>>; // cmp uid & ip & port
+    fn archive_disconnected_client(
+        &self,
+        client: ChannelClient,
+    ) -> Result<(), Box<dyn std::error::Error>>;
     fn reconnect_client_by_uid(
         &self,
         uid: String,
@@ -120,6 +165,7 @@ pub trait ChannelImpl {
 
 pub struct Channel<T> {
     pub registered_client: Arc<RwLock<Vec<ChannelClient>>>,
+    pub archived_client: Arc<RwLock<Vec<ChannelClient>>>,
     pub instance: Arc<RwLock<T>>,
     pub channel_id: String,
     pub port: u16,
@@ -606,7 +652,7 @@ impl QuickSocketInstance {
     pub fn create_tcp_channel(
         &self,
         setter: fn(&mut TcpChannel),
-        pref: ChannelCreatePreferences,
+        pref: TcpChannelCreatePreferences,
     ) -> Result<Arc<TcpChannel>, Box<dyn std::error::Error>> {
         let addr = "127.0.0.1:0";
 
@@ -637,7 +683,7 @@ impl QuickSocketInstance {
                     return Err(QuickSocketError::InstanceInitializeInvalid.to_box());
                 }
             },
-            pref: pref.clone(),
+            pref: pref.clone().to_std_pref(),
         };
 
         setter(&mut channel);
@@ -830,7 +876,7 @@ impl QuickSocketInstance {
     pub fn create_udp_channel(
         &self,
         setter: fn(&mut UdpChannel),
-        pref: ChannelCreatePreferences,
+        pref: UdpChannelCreatePreferences,
     ) -> Result<Arc<UdpChannel>, Box<dyn std::error::Error>> {
         let addr = "127.0.0.1:0";
 
@@ -860,7 +906,7 @@ impl QuickSocketInstance {
                 None => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
             }
             .clone(),
-            pref: pref.clone(),
+            pref: pref.clone().to_std_pref(),
         };
 
         setter(&mut channel);
