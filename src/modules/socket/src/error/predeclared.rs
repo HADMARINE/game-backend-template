@@ -2,6 +2,8 @@ use std::fmt;
 
 use json::{object, JsonValue};
 
+use crate::socket_instance::ChannelClient;
+
 #[derive(Debug, Clone)]
 pub struct ErrorDetails {
     code: String,
@@ -23,7 +25,7 @@ pub enum QuickSocketError {
     EventAlreadyExists,
     ClientAlreadyExists,
     ClientNotRegistered,
-    ConnectionClosed(String),
+    ConnectionClosed(ChannelClient),
     Undefined(String),
     Custom(String, String),
 }
@@ -105,7 +107,7 @@ impl QuickSocketError {
             },
             QuickSocketError::ConnectionClosed(v) => ErrorDetails {
                 code: String::from("CONNECTION_CLOSED"),
-                message: String::from(format!("Connection closed (UID : {})", v)),
+                message: String::from(format!("Connection closed (UID : {})", &v.uid)),
             },
         }
     }

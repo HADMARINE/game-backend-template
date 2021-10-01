@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 use std::{clone, net};
 use tracing::field::debug;
+use tracing::trace;
 use tungstenite::{accept, Message, WebSocket};
 use uuid::Uuid;
 
@@ -44,11 +45,11 @@ pub struct QuickSocketInstance {
     pub self_instance: Option<Arc<RwLock<QuickSocketInstance>>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChannelClient {
-    uid: String,
-    addr: SocketAddr,
-    stream: Option<Arc<RwLock<WebSocket<TcpStream>>>>,
+    pub uid: String,
+    pub addr: SocketAddr,
+    pub stream: Option<Arc<RwLock<WebSocket<TcpStream>>>>,
 }
 
 impl ChannelClient {
@@ -145,10 +146,34 @@ impl ChannelImpl for Channel<TcpListener> {
         };
         match self.emit_to(clients, event, value) {
             Ok(v) => Ok(()),
-            Err(e) => match e {
-                QuickSocketError::ConnectionClosed(uid) => Err(e),
-                _ => Err(e),
-            },
+            Err(e) => {
+                let mut e = e;
+                e.retain(|err| match err.as_ref() {
+                    QuickSocketError => match &err.as_ref().downcast_ref() {
+                        Some(v) => match v {
+                            QuickSocketError::ConnectionClosed(client) => {
+                                println!("Closing client : {}", &client.uid);
+                                if self.disconnect_certain(vec![client.clone()]).is_err() {
+                                    trace!(
+                                        "Failed to disconnect connection (UID : {})",
+                                        &client.uid
+                                    );
+                                };
+                                false
+                            }
+                            _ => true,
+                        },
+                        None => panic!("Error not found"),
+                    },
+                    _ => true,
+                });
+
+                if e.len() == 0 {
+                    return Ok(());
+                }
+
+                Err(e)
+            }
         }
     }
 
@@ -168,7 +193,7 @@ impl ChannelImpl for Channel<TcpListener> {
         };
 
         for client in clients {
-            let v = match client.stream {
+            let v = match &client.stream {
                 Some(v) => v,
                 None => {
                     errors.push(QuickSocketError::ClientDataInvalid.to_box());
@@ -188,9 +213,8 @@ impl ChannelImpl for Channel<TcpListener> {
                     drop(write_locked);
                     match e {
                         tungstenite::Error::AlreadyClosed => {
-                            errors.push(Box::new(QuickSocketError::ConnectionClosed(
-                                client.uid.clone(),
-                            )));
+                            errors
+                                .push(Box::new(QuickSocketError::ConnectionClosed(client.clone())));
                         }
                         _ => {
                             errors.push(Box::new(e));
