@@ -65,6 +65,12 @@ impl ChannelClient {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ChannelCreatePreferences {
+    delete_client_when_closed: bool,
+    concurrent: bool,
+}
+
 macro_rules! temp_client {
     ( $( $x:expr ),* ) => {
         {
@@ -117,6 +123,7 @@ pub struct Channel<T> {
     pub instance: Arc<RwLock<T>>,
     pub channel_id: String,
     pub port: u16,
+    pub pref: ChannelCreatePreferences,
     event_handlers: Arc<
         RwLock<
             HashMap<
@@ -153,12 +160,15 @@ impl ChannelImpl for Channel<TcpListener> {
                         Some(v) => match v {
                             QuickSocketError::ConnectionClosed(client) => {
                                 println!("Closing client : {}", &client.uid);
-                                if self.disconnect_certain(vec![client.clone()]).is_err() {
-                                    trace!(
-                                        "Failed to disconnect connection (UID : {})",
-                                        &client.uid
-                                    );
-                                };
+                                if self.pref.delete_client_when_closed {
+                                    if self.disconnect_certain(vec![client.clone()]).is_err() {
+                                        trace!(
+                                            "Failed to disconnect connection (UID : {})",
+                                            &client.uid
+                                        );
+                                    };
+                                }
+
                                 false
                             }
                             _ => true,
@@ -596,7 +606,7 @@ impl QuickSocketInstance {
     pub fn create_tcp_channel(
         &self,
         setter: fn(&mut TcpChannel),
-        is_concurrent: bool,
+        pref: ChannelCreatePreferences,
     ) -> Result<Arc<TcpChannel>, Box<dyn std::error::Error>> {
         let addr = "127.0.0.1:0";
 
@@ -627,6 +637,7 @@ impl QuickSocketInstance {
                     return Err(QuickSocketError::InstanceInitializeInvalid.to_box());
                 }
             },
+            pref: pref.clone(),
         };
 
         setter(&mut channel);
@@ -665,7 +676,7 @@ impl QuickSocketInstance {
                         Err(_) => continue,
                     };
 
-                    if is_concurrent {
+                    if pref.concurrent {
                         &instance.set_read_timeout(Some(Duration::from_millis(50)));
                     }
 
@@ -819,6 +830,7 @@ impl QuickSocketInstance {
     pub fn create_udp_channel(
         &self,
         setter: fn(&mut UdpChannel),
+        pref: ChannelCreatePreferences,
     ) -> Result<Arc<UdpChannel>, Box<dyn std::error::Error>> {
         let addr = "127.0.0.1:0";
 
@@ -842,12 +854,13 @@ impl QuickSocketInstance {
             port,
             event_handlers: Arc::new(RwLock::from(HashMap::new())),
             is_destroyed: Arc::new(RwLock::from(false)),
+            is_event_listener_on: Arc::new(RwLock::from(true)),
             glob_instance: match self.self_instance.clone() {
                 Some(v) => v,
                 None => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
             }
             .clone(),
-            is_event_listener_on: Arc::new(RwLock::from(true)),
+            pref: pref.clone(),
         };
 
         setter(&mut channel);
