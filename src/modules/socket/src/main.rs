@@ -49,8 +49,12 @@ fn main() {
     udp_channel_1
         .register_event_handler("hello".to_string(), tcp_1_hello)
         .unwrap();
+    udp_channel_1
+        .register_event_handler("register".to_string(), register)
+        .unwrap();
     let tcp_channel_1_clone = tcp_channel_1.clone();
     let tcp_channel_2_clone = tcp_channel_2.clone();
+    let udp_channel_1_clone = udp_channel_1.clone();
 
     drop(lock_instance);
     thread::spawn(move || loop {
@@ -62,6 +66,13 @@ fn main() {
             )
             .unwrap();
         tcp_channel_2_clone
+            .emit_all(
+                "world_data".to_string(),
+                ResponseStatus::Data,
+                JsonValue::Array(vec![123.into(), 123.into(), 123.into(), 0.into()]),
+            )
+            .unwrap();
+        udp_channel_1_clone
             .emit_all(
                 "world_data".to_string(),
                 ResponseStatus::Data,
