@@ -2,7 +2,7 @@ mod error;
 mod socket_instance;
 mod util;
 
-use crate::{error::predeclared::QuickSocketError, socket_instance::event::ResponseEvent};
+use crate::{error::predeclared::QuickSocketError, socket_instance::event::ResponseStatus};
 use json::{object, JsonValue};
 use socket_instance::*;
 use std::{sync::Arc, thread, time::Duration};
@@ -12,8 +12,24 @@ fn main() {
     let instance = QuickSocketInstance::new();
     println!("INSTANCE INITIALIZED");
     let lock_instance = instance.write().unwrap();
-    let tcp_channel_1 = lock_instance.create_tcp_channel(|v| {}, true).unwrap();
-    let tcp_channel_2 = lock_instance.create_tcp_channel(|v| {}, false).unwrap();
+    let tcp_channel_1 = lock_instance
+        .create_tcp_channel(
+            |v| {},
+            TcpChannelCreatePreferences {
+                concurrent: true,
+                delete_client_when_closed: false,
+            },
+        )
+        .unwrap();
+    let tcp_channel_2 = lock_instance
+        .create_tcp_channel(
+            |v| {},
+            TcpChannelCreatePreferences {
+                concurrent: false,
+                delete_client_when_closed: false,
+            },
+        )
+        .unwrap();
 
     tcp_channel_1
         .register_event_handler("hello".to_string(), tcp_1_hello)
@@ -40,20 +56,16 @@ fn main() {
     thread::spawn(move || loop {
         tcp_channel_1_clone
             .emit_all(
-                ResponseEvent::Data,
-                object! {
-                    event:"world_data".to_string(),
-                    data: [123,123,123,0]
-                },
+                "world_data".to_string(),
+                ResponseStatus::Data,
+                JsonValue::Array(vec![123.into(), 123.into(), 123.into(), 0.into()]),
             )
             .unwrap();
         tcp_channel_2_clone
             .emit_all(
-                ResponseEvent::Data,
-                object! {
-                    event:"world_data".to_string(),
-                    data: [123,123,123,0]
-                },
+                "world_data".to_string(),
+                ResponseStatus::Data,
+                JsonValue::Array(vec![123.into(), 123.into(), 123.into(), 0.into()]),
             )
             .unwrap();
         thread::sleep(Duration::from_secs(1));
@@ -61,23 +73,19 @@ fn main() {
     loop {}
 }
 
-fn tcp_1_hello(
-    ch: Arc<dyn ChannelImpl>,
-    v: JsonValue,
-    c: ChannelClient,
-) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
+fn tcp_1_hello(ctrl: ChannelController) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
     println!("Hello world from 'hello' event handler");
-    ch.emit_to(vec![c], event::ResponseEvent::Ok, JsonValue::Null);
+    ctrl.emit_to(
+        vec![ctrl.get_client_data()],
+        event::ResponseStatus::Ok,
+        JsonValue::Null,
+    );
     Ok(None)
 }
 
-fn register(
-    ch: Arc<dyn ChannelImpl>,
-    v: JsonValue,
-    c: ChannelClient,
-) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
+fn register(ctrl: ChannelController) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
     println!("register");
-    match ch.register_client(c.clone()) {
+    match ctrl.register_client(ctrl.get_client_data()) {
         Ok(v) => (),
         Err(e) => {
             // match e {
@@ -85,9 +93,9 @@ fn register(
             // };
             // if e == QuickSocketError {}
 
-            ch.emit_to(
-                vec![c],
-                ResponseEvent::Error,
+            ctrl.emit_to(
+                vec![ctrl.get_client_data()],
+                ResponseStatus::Error,
                 object! {
                     data: String::from("Client already exists!")
                 },
@@ -98,19 +106,15 @@ fn register(
     Ok(None)
 }
 
-fn deregister(
-    ch: Arc<dyn ChannelImpl>,
-    v: JsonValue,
-    c: ChannelClient,
-) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
+fn deregister(ctrl: ChannelController) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
     println!("deregister");
 
-    match ch.disconnect_certain(vec![c.clone()]) {
+    match ctrl.disconnect_certain(vec![ctrl.get_client_data()]) {
         Ok(v) => (),
         Err(e) => {
-            ch.emit_to(
-                vec![c],
-                ResponseEvent::Error,
+            ctrl.emit_to(
+                vec![ctrl.get_client_data()],
+                ResponseStatus::Error,
                 object! {
                     data:String::from("Disconnect failed")
                 },
@@ -118,5 +122,13 @@ fn deregister(
         }
     };
 
+    Ok(None)
+}
+
+fn reregister(ctrl: ChannelController) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
+    Ok(None)
+}
+
+fn get_client_data(ctrl: ChannelController) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
     Ok(None)
 }

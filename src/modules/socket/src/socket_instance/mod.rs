@@ -14,7 +14,7 @@ use tracing::trace;
 use tungstenite::{accept, Message, WebSocket};
 use uuid::Uuid;
 
-use self::event::ResponseEvent;
+use self::event::ResponseStatus;
 
 pub mod event;
 
@@ -67,8 +67,8 @@ impl ChannelClient {
 
 #[derive(Clone, Copy, Debug)]
 pub struct TcpChannelCreatePreferences {
-    delete_client_when_closed: bool,
-    concurrent: bool,
+    pub delete_client_when_closed: bool,
+    pub concurrent: bool,
 }
 
 impl TcpChannelCreatePreferences {
@@ -127,23 +127,21 @@ macro_rules! temp_client {
 pub trait ChannelImpl {
     fn emit_all(
         &self,
-        event: ResponseEvent,
+        event: String,
+        status: ResponseStatus,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>>;
     fn emit_to(
         &self,
         clients: Vec<ChannelClient>,
-        event: ResponseEvent,
+        event: String,
+        status: ResponseStatus,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>>;
     fn register_event_handler(
         &self,
         event: String,
-        func: fn(
-            Arc<dyn ChannelImpl>,
-            JsonValue,
-            ChannelClient,
-        ) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
+        func: fn(ChannelController) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>>;
     fn disconnect_certain(
         &self,
@@ -174,11 +172,7 @@ pub struct Channel<T> {
         RwLock<
             HashMap<
                 String,
-                fn(
-                    Arc<dyn ChannelImpl>,
-                    JsonValue,
-                    ChannelClient,
-                ) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
+                fn(ChannelController) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
             >,
         >,
     >,
@@ -187,17 +181,103 @@ pub struct Channel<T> {
     glob_instance: Arc<RwLock<QuickSocketInstance>>,
 }
 
+pub struct ChannelController {
+    event: String,
+    accepted_client: ChannelClient,
+    channel: Arc<dyn ChannelImpl>,
+    value: JsonValue,
+}
+
+impl ChannelController {
+    pub fn new(
+        event: String,
+        channel: Arc<dyn ChannelImpl>,
+        value: JsonValue,
+        accepted_client: ChannelClient,
+    ) -> Self {
+        ChannelController {
+            event,
+            channel,
+            value,
+            accepted_client,
+        }
+    }
+
+    pub fn emit_to(
+        &self,
+        clients: Vec<ChannelClient>,
+        status: ResponseStatus,
+        value: JsonValue,
+    ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
+        self.channel
+            .emit_to(clients, self.event.clone(), status, value)
+    }
+    pub fn emit_all(
+        &self,
+        status: ResponseStatus,
+        value: JsonValue,
+    ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
+        self.channel.emit_all(self.event.clone(), status, value)
+    }
+
+    pub fn emit_to_raw(
+        &self,
+        clients: Vec<ChannelClient>,
+        event: String,
+        status: ResponseStatus,
+        value: JsonValue,
+    ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
+        self.channel.emit_to(clients, event, status, value)
+    }
+
+    pub fn emit_all_raw(
+        &self,
+        event: String,
+        status: ResponseStatus,
+        value: JsonValue,
+    ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
+        self.channel.emit_all(event, status, value)
+    }
+
+    pub fn get_client_data(&self) -> ChannelClient {
+        self.accepted_client.clone()
+    }
+    pub fn get_event_name(&self) -> String {
+        self.event.clone()
+    }
+    pub fn disconnect_certain(
+        &self,
+        client: Vec<ChannelClient>,
+    ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
+        self.channel.disconnect_certain(client)
+    }
+    pub fn disconnect_all(&self) -> Result<(), Vec<Box<dyn std::error::Error>>> {
+        self.channel.disconnect_all()
+    }
+    pub fn reconnect_client_by_id(
+        &self,
+        uid: String,
+        client: ChannelClient,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.channel.reconnect_client_by_uid(uid, client)
+    }
+    pub fn register_client(&self, client: ChannelClient) -> Result<(), Box<dyn std::error::Error>> {
+        self.channel.register_client(client)
+    }
+}
+
 impl ChannelImpl for Channel<TcpListener> {
     fn emit_all(
         &self,
-        event: ResponseEvent,
+        event: String,
+        status: ResponseStatus,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
         let clients = match self.registered_client.read() {
             Ok(v) => v.to_vec(),
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
-        match self.emit_to(clients, event, value) {
+        match self.emit_to(clients, event, status, value) {
             Ok(v) => Ok(()),
             Err(e) => {
                 let mut e = e;
@@ -236,7 +316,8 @@ impl ChannelImpl for Channel<TcpListener> {
     fn emit_to(
         &self,
         clients: Vec<ChannelClient>,
-        event: ResponseEvent,
+        event: String,
+        status: ResponseStatus,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
         println!("{} : {}", event.to_string(), &value);
@@ -244,7 +325,8 @@ impl ChannelImpl for Channel<TcpListener> {
         let mut errors: Vec<Box<dyn std::error::Error>> = vec![];
 
         let json_value = object! {
-            event: event.to_string(),
+            event: event,
+            status: status.to_string(),
             data: value
         };
 
@@ -294,11 +376,7 @@ impl ChannelImpl for Channel<TcpListener> {
     fn register_event_handler(
         &self,
         event: String,
-        func: fn(
-            Arc<dyn ChannelImpl>,
-            JsonValue,
-            ChannelClient,
-        ) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
+        func: fn(ChannelController) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if match self.event_handlers.read() {
             Ok(v) => v,
@@ -404,10 +482,12 @@ impl ChannelImpl for Channel<TcpListener> {
         uid: String,
         new_client: ChannelClient,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut locked_client_list = match self.registered_client.write() {
+        let mut locked_client_list = match self.archived_client.write() {
             Ok(v) => v,
             Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
         };
+
+        let cloned_uid = uid.clone();
 
         let found_client = locked_client_list.iter_mut().find(move |v| v.uid == uid);
         if found_client.is_some() {
@@ -415,8 +495,32 @@ impl ChannelImpl for Channel<TcpListener> {
                 Some(v) => v,
                 None => return Err(QuickSocketError::ClientNotRegistered.to_box()),
             };
-            std::mem::replace(found_client, new_client);
+
+            let mut new_client = new_client;
+            new_client.uid = cloned_uid;
+            let del_val = std::mem::replace(found_client, new_client);
+            drop(del_val);
         };
+        Ok(())
+    }
+
+    fn archive_disconnected_client(
+        &self,
+        client: ChannelClient,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut write_locked = match self.registered_client.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+
+        write_locked.retain(|x| x.uid != client.uid.clone());
+
+        let mut write_locked = match self.archived_client.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+
+        write_locked.push(client);
         Ok(())
     }
 }
@@ -424,25 +528,28 @@ impl ChannelImpl for Channel<TcpListener> {
 impl ChannelImpl for Channel<UdpSocket> {
     fn emit_all(
         &self,
-        event: ResponseEvent,
+        event: String,
+        status: ResponseStatus,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
         let locked_registered_client = match self.registered_client.read() {
             Ok(v) => v.to_vec(),
             Err(_) => return Err(vec![QuickSocketError::ClientDataInvalid.to_box()]),
         };
-        self.emit_to(locked_registered_client, event, value)
+        self.emit_to(locked_registered_client, event, status, value)
     }
 
     fn emit_to(
         &self,
         clients: Vec<ChannelClient>,
-        event: ResponseEvent,
+        event: String,
+        status: ResponseStatus,
         value: JsonValue,
     ) -> Result<(), Vec<Box<dyn std::error::Error>>> {
         let mut errors: Vec<Box<dyn std::error::Error>> = vec![];
         let value = object! {
-            event: event.to_string(),
+            event: event,
+            status:  status.to_string(),
             data: value
         };
         let value = json::stringify(value);
@@ -526,11 +633,7 @@ impl ChannelImpl for Channel<UdpSocket> {
     fn register_event_handler(
         &self,
         event: String,
-        func: fn(
-            Arc<dyn ChannelImpl>,
-            JsonValue,
-            ChannelClient,
-        ) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
+        func: fn(ChannelController) -> Result<Option<JsonValue>, Box<QuickSocketError>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if match self.event_handlers.read() {
             Ok(v) => v,
@@ -579,10 +682,12 @@ impl ChannelImpl for Channel<UdpSocket> {
         uid: String,
         new_client: ChannelClient,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut locked_client_list = match self.registered_client.write() {
+        let mut locked_client_list = match self.archived_client.write() {
             Ok(v) => v,
             Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
         };
+
+        let cloned_uid = uid.clone();
 
         let found_client = locked_client_list.iter_mut().find(move |v| v.uid == uid);
         if found_client.is_some() {
@@ -590,8 +695,32 @@ impl ChannelImpl for Channel<UdpSocket> {
                 Some(v) => v,
                 None => return Err(QuickSocketError::ClientNotRegistered.to_box()),
             };
-            std::mem::replace(found_client, new_client);
+
+            let mut new_client = new_client;
+            new_client.uid = cloned_uid;
+            let del_val = std::mem::replace(found_client, new_client);
+            drop(del_val);
         };
+        Ok(())
+    }
+
+    fn archive_disconnected_client(
+        &self,
+        client: ChannelClient,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut write_locked = match self.registered_client.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+
+        write_locked.retain(|x| x.uid != client.uid.clone());
+
+        let mut write_locked = match self.archived_client.write() {
+            Ok(v) => v,
+            Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+        };
+
+        write_locked.push(client);
         Ok(())
     }
 }
@@ -673,6 +802,7 @@ impl QuickSocketInstance {
             channel_id: Uuid::new_v4().to_string(),
             instance: sock_ins,
             registered_client: Arc::new(RwLock::from(vec![])),
+            archived_client: Arc::new(RwLock::new(vec![])),
             port,
             event_handlers: Arc::new(RwLock::from(HashMap::new())),
             is_destroyed: Arc::new(RwLock::from(false)),
@@ -764,7 +894,8 @@ impl QuickSocketInstance {
                                         Err(e) => {
                                             channel.emit_to(
                                                 vec![accepted_client.clone()],
-                                                ResponseEvent::Error,
+                                                "general".to_string(),
+                                                ResponseStatus::Error,
                                                 QuickSocketError::SocketBufferReadFail.jsonify(),
                                             );
                                             return;
@@ -776,8 +907,8 @@ impl QuickSocketInstance {
 
                                     let res = match e {
                                         tungstenite::Error::Io(e_io) => {
-                                            let v = e_io.kind() == ErrorKind::WouldBlock;
-                                            // || e_io.kind() == ErrorKind::TimedOut;
+                                            let v = e_io.kind() == ErrorKind::WouldBlock
+                                                || e_io.kind() == ErrorKind::TimedOut;
                                             v
                                         }
                                         _ => false,
@@ -790,7 +921,8 @@ impl QuickSocketInstance {
 
                                     channel.emit_to(
                                         vec![accepted_client.clone()],
-                                        ResponseEvent::Error,
+                                        "general".to_string(),
+                                        ResponseStatus::Error,
                                         QuickSocketError::SocketBufferReadFail.jsonify(),
                                     );
                                     return;
@@ -804,7 +936,8 @@ impl QuickSocketInstance {
                                 Err(_) => {
                                     channel.emit_to(
                                         vec![accepted_client.clone()],
-                                        ResponseEvent::Error,
+                                        "general".to_string(),
+                                        ResponseStatus::Error,
                                         QuickSocketError::JsonParseFail.jsonify(),
                                     );
                                     continue;
@@ -815,7 +948,8 @@ impl QuickSocketInstance {
                             if !event.is_string() {
                                 channel.emit_to(
                                     vec![accepted_client.clone()],
-                                    ResponseEvent::Error,
+                                    "general".to_string(),
+                                    ResponseStatus::Error,
                                     QuickSocketError::JsonFormatInvalid.jsonify(),
                                 );
                                 continue;
@@ -831,23 +965,28 @@ impl QuickSocketInstance {
                                 None => {
                                     channel.emit_to(
                                         vec![accepted_client.clone()],
-                                        ResponseEvent::Error,
+                                        "general".to_string(),
+                                        ResponseStatus::Error,
                                         QuickSocketError::EventNotFound.jsonify(),
                                     );
                                     continue;
                                 }
                             };
 
-                            match event_handler(
+                            let ctrl = ChannelController::new(
+                                event.to_string().clone(),
                                 channel.clone(),
                                 msg["data"].to_owned(),
                                 accepted_client.clone(),
-                            ) {
+                            );
+
+                            match event_handler(ctrl) {
                                 Ok(v) => {
                                     if let Some(value) = v {
                                         channel.emit_to(
                                             vec![accepted_client.clone()],
-                                            ResponseEvent::Ok,
+                                            event.to_string().clone(),
+                                            ResponseStatus::Ok,
                                             value,
                                         );
                                     }
@@ -856,7 +995,8 @@ impl QuickSocketInstance {
                                 Err(e) => {
                                     channel.emit_to(
                                         vec![accepted_client.clone()],
-                                        ResponseEvent::Error,
+                                        event.to_string().clone(),
+                                        ResponseStatus::Error,
                                         e.jsonify(),
                                     );
                                     continue;
@@ -897,6 +1037,7 @@ impl QuickSocketInstance {
             channel_id: Uuid::new_v4().to_string(),
             instance: sock_ins,
             registered_client: Arc::new(RwLock::from(vec![])),
+            archived_client: Arc::new(RwLock::new(vec![])),
             port,
             event_handlers: Arc::new(RwLock::from(HashMap::new())),
             is_destroyed: Arc::new(RwLock::from(false)),
@@ -959,7 +1100,8 @@ impl QuickSocketInstance {
                                 Err(_) => {
                                     channel.emit_to(
                                         temp_client!(addr),
-                                        ResponseEvent::Error,
+                                        "general".to_string(),
+                                        ResponseStatus::Error,
                                         QuickSocketError::JsonParseFail.jsonify(),
                                     );
                                     return;
@@ -971,7 +1113,8 @@ impl QuickSocketInstance {
                             if !event.is_string() {
                                 channel.emit_to(
                                     temp_client!(addr),
-                                    ResponseEvent::Error,
+                                    "general".to_string(),
+                                    ResponseStatus::Error,
                                     QuickSocketError::JsonFormatInvalid.jsonify(),
                                 );
                                 return;
@@ -982,7 +1125,8 @@ impl QuickSocketInstance {
                                 Err(_) => {
                                     channel.emit_to(
                                         temp_client!(addr),
-                                        ResponseEvent::Error,
+                                        "general".to_string(),
+                                        ResponseStatus::Error,
                                         QuickSocketError::ChannelInitializeFail.jsonify(),
                                     );
                                     return;
@@ -994,14 +1138,16 @@ impl QuickSocketInstance {
                                 None => {
                                     channel.emit_to(
                                         temp_client!(addr),
-                                        ResponseEvent::Error,
+                                        "general".to_string(),
+                                        ResponseStatus::Error,
                                         QuickSocketError::EventNotFound.jsonify(),
                                     );
                                     return;
                                 }
                             };
 
-                            match event_handler(
+                            let ctrl = ChannelController::new(
+                                event.to_string().clone(),
                                 channel.clone(),
                                 msg["data"].to_owned(),
                                 ChannelClient {
@@ -1009,12 +1155,15 @@ impl QuickSocketInstance {
                                     stream: None,
                                     uid: String::new(),
                                 },
-                            ) {
+                            );
+
+                            match event_handler(ctrl) {
                                 Ok(v) => {
                                     if let Some(value) = v {
                                         channel.emit_to(
                                             temp_client!(addr),
-                                            ResponseEvent::Ok,
+                                            event.to_string().clone(),
+                                            ResponseStatus::Ok,
                                             value,
                                         );
                                     };
@@ -1023,7 +1172,8 @@ impl QuickSocketInstance {
                                 Err(e) => {
                                     channel.emit_to(
                                         temp_client!(addr),
-                                        ResponseEvent::Error,
+                                        event.to_string().clone(),
+                                        ResponseStatus::Error,
                                         e.jsonify(),
                                     );
                                     ()
@@ -1032,7 +1182,8 @@ impl QuickSocketInstance {
                         } else {
                             channel.emit_to(
                                 temp_client!(addr),
-                                ResponseEvent::Error,
+                                "general".to_string(),
+                                ResponseStatus::Error,
                                 QuickSocketError::InternalServerError.jsonify(),
                             );
                             return;

@@ -1,4 +1,4 @@
-pub enum ResponseEvent {
+pub enum ResponseStatus {
     Error,
     Redirect,
     Execute,
@@ -14,15 +14,15 @@ macro_rules! strm {
     }};
 }
 
-impl ResponseEvent {
+impl ResponseStatus {
     pub fn to_string(&self) -> String {
         match *self {
-            ResponseEvent::Error => strm!("error"),
-            ResponseEvent::Redirect => strm!("redirect"),
-            ResponseEvent::Execute => strm!("execute"),
-            ResponseEvent::Terminate => strm!("terminate"),
-            ResponseEvent::Ok => strm!("ok"),
-            ResponseEvent::Data => strm!("data"),
+            ResponseStatus::Error => strm!("error"),
+            ResponseStatus::Redirect => strm!("redirect"),
+            ResponseStatus::Execute => strm!("execute"),
+            ResponseStatus::Terminate => strm!("terminate"),
+            ResponseStatus::Ok => strm!("ok"),
+            ResponseStatus::Data => strm!("data"),
         }
     }
 }
