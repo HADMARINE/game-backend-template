@@ -9,8 +9,6 @@ fn hello(mut cx: FunctionContext) -> JsResult<JsString> {
 }
 
 fn create_room(mut cx: FunctionContext) -> JsResult<JsObject> {}
-// fn close_room
-// fn
 
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
