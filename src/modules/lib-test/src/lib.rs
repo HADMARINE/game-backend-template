@@ -1,3 +1,5 @@
+use std::{thread, time::Duration};
+
 use neon::prelude::*;
 
 fn hello(mut cx: FunctionContext) -> JsResult<JsString> {
@@ -12,5 +14,6 @@ fn undef(mut cx: FunctionContext) -> JsResult<JsBoolean> {
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("hello", hello)?;
     cx.export_function("undef", undef)?;
+    // thread::sleep(Duration::from_secs(10));
     Ok(())
 }

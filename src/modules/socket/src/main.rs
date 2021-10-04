@@ -1,4 +1,5 @@
 mod error;
+mod js_interface;
 mod socket_instance;
 mod util;
 

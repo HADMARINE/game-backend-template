@@ -2,14 +2,12 @@ use crate::error::predeclared::QuickSocketError;
 use json::{object, JsonValue};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{ErrorKind, Read, Write};
+use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
-use std::{clone, net};
-use tracing::field::debug;
 use tracing::trace;
 use tungstenite::{accept, Message, WebSocket};
 use uuid::Uuid;
@@ -181,6 +179,7 @@ pub struct Channel<T> {
     glob_instance: Arc<RwLock<QuickSocketInstance>>,
 }
 
+#[derive(Clone)]
 pub struct ChannelController {
     event: String,
     accepted_client: ChannelClient,

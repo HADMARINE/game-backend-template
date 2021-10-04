@@ -1,32 +1,47 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
-use neon::prelude::{FunctionContext, Handle, JsBoolean, JsObject, JsResult, Object};
+use json::JsonValue;
+use neon::prelude::{
+    Context, FunctionContext, Handle, JsBoolean, JsObject, JsResult, JsString, JsValue, Object,
+};
+
+use crate::socket_instance::ChannelController;
 
 pub struct JsInterface {
     js_handler: Option<fn(FunctionContext) -> JsResult<JsBoolean>>,
-    event_list: HashMap<String, fn(JsonValue) -> Result<(), Box<dyn std::error::Error>>,
+    event_list: HashMap<String, fn(JsonValue) -> Result<(), Box<dyn std::error::Error>>>,
+    channel: ChannelController,
+}
+
+fn socket_data_handler(mut cx: FunctionContext) -> JsResult<JsBoolean> {
+    let data: Handle<JsObject> = cx.argument(0)?;
+    let event: Handle<JsValue> = data.get(&mut cx, "event")?;
+    let data = data.get(&mut cx, "data")?;
+    Ok(cx.boolean(true))
 }
 
 impl JsInterface {
     pub fn new() -> Self {
-        JsInterface { 
-            js_handler: None, 
+        JsInterface {
+            js_handler: None,
             event_list: HashMap::new(),
         }
     }
+
+    pub fn to_object<'a>(&self, &mut impl Context<'a>) -> 
 
     pub fn close_room(&self) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
 
-    pub fn socket_data_handler(
-        &self,
-        mut cx: FunctionContext,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let data: Handle<JsObject> = cx.argument(0)?;
-        let event = data.get(&mut cx, "event");
-        let data = data.get(&mut cx, "data");
-        Ok(())
+    // Used by js
+    pub fn socket_data_handler<'a>(&self, mut cx: FunctionContext<'a>) -> JsResult<JsBoolean> {
+        let true_value = &mut cx.boolean(true);
+
+        Ok(cx.boolean(true))
     }
 
     pub fn set_js_handler(
