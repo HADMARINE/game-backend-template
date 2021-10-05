@@ -17,13 +17,25 @@ fn hello(mut cx: FunctionContext) -> JsResult<JsString> {
 fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
     let preferences = match TcpChannelCreatePreferences::from_jsobj(&mut cx, cx.argument(0)?){
         Ok(v) => v,
-        Err(e) => return Err(Throw),
+        Err(_) => return Err(Throw),
     }; // Preferences
 
-    let write_locked = INSTANCE.write()?;
-    let channel = write_locked.create_tcp_channel(|_| {}, preferences)?;
+    let handler:JsFunction = cx.argument(1)?;
+
+    let write_locked =match  INSTANCE.write() {
+        Ok(v) => v,
+        Err(_) => return Err(Throw),
+    };
+    let channel =match  write_locked.create_tcp_channel(|_| {}, preferences) {
+        Ok(v) => v,
+        Err(_) => return Err(Throw),
+    }; 
+
     drop(write_locked);
-    let interface = js_interface::JsInterface::new().to_object(&mut cx)?;
+
+    let interface = js_interface::JsInterface::new(handler, channel.instance.read()?.local_addr()?).to_object(&mut cx)?;
+
+    Ok(interface)
 }
 
 fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
