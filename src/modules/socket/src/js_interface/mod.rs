@@ -9,18 +9,10 @@ use neon::prelude::{
 };
 
 use crate::socket_instance::ChannelController;
-
 pub struct JsInterface {
     js_handler: Option<fn(FunctionContext) -> JsResult<JsBoolean>>,
     event_list: HashMap<String, fn(JsonValue) -> Result<(), Box<dyn std::error::Error>>>,
     channel: ChannelController,
-}
-
-fn socket_data_handler(mut cx: FunctionContext) -> JsResult<JsBoolean> {
-    let data: Handle<JsObject> = cx.argument(0)?;
-    let event: Handle<JsValue> = data.get(&mut cx, "event")?;
-    let data = data.get(&mut cx, "data")?;
-    Ok(cx.boolean(true))
 }
 
 impl JsInterface {
@@ -31,7 +23,9 @@ impl JsInterface {
         }
     }
 
-    pub fn to_object<'a>(&self, &mut impl Context<'a>) -> 
+    pub fn to_object<'a>(&self, &mut impl Context<'a>) -> JsResult<'a, JsObject> {
+
+    }
 
     pub fn close_room(&self) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
@@ -39,8 +33,9 @@ impl JsInterface {
 
     // Used by js
     pub fn socket_data_handler<'a>(&self, mut cx: FunctionContext<'a>) -> JsResult<JsBoolean> {
-        let true_value = &mut cx.boolean(true);
-
+        let data: Handle<JsObject> = cx.argument(0)?;
+        let event: Handle<JsValue> = data.get(&mut cx, "event")?;
+        let data = data.get(&mut cx, "data")?;
         Ok(cx.boolean(true))
     }
 

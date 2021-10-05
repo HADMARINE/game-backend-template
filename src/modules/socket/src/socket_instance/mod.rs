@@ -1,5 +1,6 @@
 use crate::error::predeclared::QuickSocketError;
 use json::{object, JsonValue};
+use neon::prelude::{FunctionContext, Handle, JsObject, Object};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -70,6 +71,16 @@ pub struct TcpChannelCreatePreferences {
 }
 
 impl TcpChannelCreatePreferences {
+    pub fn from_jsobj(
+        &mut cx: &mut FunctionContext,
+        argument: Handle<JsObject>,
+    ) -> Result<TcpChannelCreatePreferences, Box<dyn std::error::Error>> {
+        Ok(TcpChannelCreatePreferences {
+            delete_client_when_closed: argument.get(&mut cx, "deleteClientWhenClosed")?.into()?,
+            concurrent: argument.get(&mut cx, "concurrent").into()?,
+        })
+    }
+
     pub fn to_std_pref(&self) -> ChannelCreatePreferences {
         ChannelCreatePreferences {
             delete_client_when_closed: self.delete_client_when_closed,
@@ -90,6 +101,15 @@ pub struct UdpChannelCreatePreferences {
 }
 
 impl UdpChannelCreatePreferences {
+    pub fn from_jsobj(
+        &mut cx: &mut FunctionContext,
+        argument: Handle<JsObject>,
+    ) -> Result<UdpChannelCreatePreferences, Box<dyn std::error::Error>> {
+        Ok(UdpChannelCreatePreferences {
+            delete_client_when_closed: argument.get(&mut cx, "deleteClientWhenClosed")?.into()?,
+        })
+    }
+
     pub fn to_std_pref(&self) -> ChannelCreatePreferences {
         ChannelCreatePreferences {
             delete_client_when_closed: self.delete_client_when_closed,
