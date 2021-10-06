@@ -7,8 +7,8 @@ use std::{
 use json::JsonValue;
 use neon::{
     prelude::{
-        Context, FunctionContext, Handle, JsBoolean, JsFunction, JsObject, JsResult, JsUndefined,
-        JsValue, Object,
+        Context, Finalize, FunctionContext, Handle, JsBoolean, JsFunction, JsObject, JsResult,
+        JsUndefined, JsValue, Object,
     },
     result::Throw,
 };
@@ -21,6 +21,10 @@ pub struct JsInterface {
     addr: SocketAddr,
     channel: Arc<dyn ChannelImpl>,
 }
+
+impl Finalize for JsInterface {}
+unsafe impl Sync for JsInterface {}
+unsafe impl Send for JsInterface {}
 
 impl JsInterface {
     pub fn new(
@@ -37,16 +41,18 @@ impl JsInterface {
         }
     }
 
-    pub fn to_js_object<'a>(&self, &mut cx: &'a mut FunctionContext) -> JsResult<'a, JsObject> {
-        let obj = cx.empty_object();
-        obj.set(&mut cx, "port", cx.number(self.addr.port()));
-        obj.set(
-            &mut cx,
-            "eventHandler",
-            JsFunction::new(&mut cx, Self::socket_data_handler)?,
-        );
-        Ok(obj)
-    }
+    // pub fn to_js_object<'a>(&self, &mut cx: &'a mut FunctionContext) -> JsResult<'a, JsObject> {
+    //     let boxed_self = cx.boxed(*self);
+
+    //     let obj = cx.empty_object();
+    //     obj.set(&mut cx, "port", cx.number(self.addr.port()));
+    //     obj.set(
+    //         &mut cx,
+    //         "eventHandler",
+    //         JsFunction::new(&mut cx, boxed_self.socket_data_handler)?,
+    //     );
+    //     Ok(obj)
+    // }
 
     pub fn socket_data_handler(&self, mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let data: Handle<JsObject> = cx.argument(0)?;

@@ -45,8 +45,9 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
         },
         HashMap::new(),
         channel,
-    )
-    .to_js_object(&mut cx)?;
+    );
+
+    let boxed_interface = cx.boxed(interface);
 
     Ok(interface)
 }
