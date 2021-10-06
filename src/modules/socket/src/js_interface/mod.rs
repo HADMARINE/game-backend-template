@@ -1,33 +1,51 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+};
 
 use json::JsonValue;
 use neon::{
     prelude::{
-        FunctionContext, Handle, JsBoolean, JsFunction, JsObject, JsResult, JsUndefined, JsValue,
-        Object,
+        Context, FunctionContext, Handle, JsBoolean, JsFunction, JsObject, JsResult, JsUndefined,
+        JsValue, Object,
     },
     result::Throw,
 };
 
+use crate::socket_instance::ChannelImpl;
+
 pub struct JsInterface {
     js_handler: JsFunction,
-    event_list: HashMap<String, fn(JsonValue) -> Result<(), Box<dyn std::error::Error>>>,
+    event_list: HashMap<String, JsFunction>,
     addr: SocketAddr,
+    channel: Arc<dyn ChannelImpl>,
 }
 
 impl JsInterface {
-    pub fn new(handler: JsFunction, addr: SocketAddr) -> Self {
+    pub fn new(
+        js_handler: JsFunction,
+        addr: SocketAddr,
+        event_list: HashMap<String, JsFunction>,
+        channel: Arc<dyn ChannelImpl>,
+    ) -> Self {
         JsInterface {
-            js_handler: handler,
+            js_handler, // event handler in js instance
             event_list: HashMap::new(),
             addr,
+            channel,
         }
     }
 
-    pub fn to_object(&self, &mut cx: &mut FunctionContext) -> JsResult<JsObject> {}
-
-    pub fn close_room(&self) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
+    pub fn to_js_object<'a>(&self, &mut cx: &'a mut FunctionContext) -> JsResult<'a, JsObject> {
+        let obj = cx.empty_object();
+        obj.set(&mut cx, "port", cx.number(self.addr.port()));
+        obj.set(
+            &mut cx,
+            "eventHandler",
+            JsFunction::new(&mut cx, Self::socket_data_handler)?,
+        );
+        Ok(obj)
     }
 
     pub fn socket_data_handler(&self, mut cx: FunctionContext) -> JsResult<JsUndefined> {
