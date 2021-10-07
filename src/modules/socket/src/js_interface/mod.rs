@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     collections::HashMap,
     net::SocketAddr,
     sync::{Arc, RwLock},
@@ -7,18 +8,20 @@ use std::{
 use json::JsonValue;
 use neon::{
     prelude::{
-        Context, Finalize, FunctionContext, Handle, JsBoolean, JsFunction, JsObject, JsResult,
-        JsUndefined, JsValue, Object,
+        Context, Finalize, FunctionContext, Handle, JsBoolean, JsBox, JsFunction, JsObject,
+        JsResult, JsUndefined, Object,
     },
     result::Throw,
 };
 
 use crate::socket_instance::ChannelImpl;
 
+type BoxedJsInterface = JsBox<RefCell<JsInterface>>;
+
 pub struct JsInterface {
     js_handler: JsFunction,
     event_list: HashMap<String, JsFunction>,
-    addr: SocketAddr,
+    pub addr: SocketAddr,
     channel: Arc<dyn ChannelImpl>,
 }
 
@@ -35,7 +38,7 @@ impl JsInterface {
     ) -> Self {
         JsInterface {
             js_handler, // event handler in js instance
-            event_list: HashMap::new(),
+            event_list,
             addr,
             channel,
         }
@@ -74,4 +77,9 @@ impl JsInterface {
         self.js_handler = Some(func);
         Ok(())
     }
+}
+
+pub fn socket_data_handler(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+    let interface = cx.argument::<BoxedJsInterface>(0)?;
+    Ok(cx.undefined())
 }

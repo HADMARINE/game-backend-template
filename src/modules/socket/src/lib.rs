@@ -47,9 +47,17 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
         channel,
     );
 
-    let boxed_interface = cx.boxed(interface);
+    // let boxed_interface = cx.boxed(interface);
 
-    Ok(interface)
+    let mut return_object = cx.empty_object();
+    return_object.set(&mut cx, "port", cx.number(interface.addr.port()));
+    return_object.set(
+        &mut cx,
+        "socket_handler",
+        JsFunction::new(&mut cx, js_interface::socket_data_handler)?,
+    );
+
+    Ok(return_object)
 }
 
 fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
