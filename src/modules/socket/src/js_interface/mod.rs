@@ -67,19 +67,16 @@ impl JsInterface {
             None => return Err(Throw),
         };
 
-        handler()
-    }
+        let dd: Handle<JsObject> = match data.downcast(&mut cx) {
+            Ok(v) => v,
+            Err(e) => return cx.throw_error("value invalid"),
+        };
 
-    pub fn set_js_handler(
-        &self,
-        func: fn(FunctionContext) -> JsResult<JsBoolean>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.js_handler = Some(func);
-        Ok(())
+        handler.call(cx);
     }
 }
 
 pub fn socket_data_handler(mut cx: FunctionContext) -> JsResult<JsUndefined> {
     let interface = cx.argument::<BoxedJsInterface>(0)?;
-    Ok(cx.undefined())
+    interface.borrow_mut().socket_data_handler(cx)
 }

@@ -36,12 +36,12 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
         *handler,
         match match channel.instance.read() {
             Ok(v) => v,
-            Err(_) => return Err(cx.throw_error("instance initialize invalid")?),
+            Err(_) => return Err(cx.throw_error("instance init invalid")?),
         }
         .local_addr()
         {
             Ok(v) => v,
-            Err(_) => return Err(cx.throw_error("instance initialize invalid")?),
+            Err(_) => return Err(cx.throw_error("instance init invalid")?),
         },
         HashMap::new(),
         channel,
