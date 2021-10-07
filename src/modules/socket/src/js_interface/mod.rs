@@ -9,7 +9,7 @@ use json::JsonValue;
 use neon::{
     prelude::{
         Context, Finalize, FunctionContext, Handle, JsBoolean, JsBox, JsFunction, JsObject,
-        JsResult, JsUndefined, Object,
+        JsResult, JsUndefined, Object, Value,
     },
     result::Throw,
 };
@@ -20,7 +20,8 @@ type BoxedJsInterface = JsBox<RefCell<JsInterface>>;
 
 pub struct JsInterface {
     js_handler: JsFunction,
-    event_list: HashMap<String, JsFunction>,
+    event_list:
+        HashMap<String, Box<dyn FnOnce(JsonValue) -> Result<(), Box<dyn std::error::Error>>>>,
     pub addr: SocketAddr,
     channel: Arc<dyn ChannelImpl>,
 }
@@ -33,36 +34,37 @@ impl JsInterface {
     pub fn new(
         js_handler: JsFunction,
         addr: SocketAddr,
-        event_list: HashMap<String, JsFunction>,
+        event_list: HashMap<
+            String,
+            Box<dyn FnOnce(JsonValue) -> Result<(), Box<dyn std::error::Error>>>,
+        >,
         channel: Arc<dyn ChannelImpl>,
     ) -> Self {
         JsInterface {
-            js_handler, // event handler in js instance
-            event_list,
+            js_handler, // event handler function runs on js thread
+            event_list, // event handler list runs on rust thread
             addr,
             channel,
         }
     }
 
-    // pub fn to_js_object<'a>(&self, &mut cx: &'a mut FunctionContext) -> JsResult<'a, JsObject> {
-    //     let boxed_self = cx.boxed(*self);
-
-    //     let obj = cx.empty_object();
-    //     obj.set(&mut cx, "port", cx.number(self.addr.port()));
-    //     obj.set(
-    //         &mut cx,
-    //         "eventHandler",
-    //         JsFunction::new(&mut cx, boxed_self.socket_data_handler)?,
-    //     );
-    //     Ok(obj)
-    // }
-
     pub fn socket_data_handler(&self, mut cx: FunctionContext) -> JsResult<JsUndefined> {
         let data: Handle<JsObject> = cx.argument(0)?;
-        let event = data.get(&mut cx, "event")?;
-        let data = data.get(&mut cx, "data")?;
+        let event = data
+            .get(&mut cx, "event")?
+            .to_string(&mut cx)?
+            .value(&mut cx);
+        let data: Handle<JsObject> = data.get(&mut cx, "data")?.downcast_or_throw(&mut cx)?;
 
-        let handler = match self.event_list.get(event) {
+        let data_keys = data.get_own_property_names(&mut cx)?.to_vec(&mut cx)?;
+
+        let mut mapped_data: JsonValue = JsonValue::new_object();
+
+        for k in data_keys {
+            // TODO : create parser here!
+        }
+
+        let handler = match self.event_list.get(&event.to_string()) {
             Some(v) => v,
             None => return Err(Throw),
         };
@@ -72,7 +74,7 @@ impl JsInterface {
             Err(e) => return cx.throw_error("value invalid"),
         };
 
-        handler.call(cx);
+        Ok(cx.undefined())
     }
 }
 
