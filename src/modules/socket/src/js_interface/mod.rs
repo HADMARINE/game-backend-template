@@ -180,7 +180,7 @@ impl<'a> JsInterface<'a> {
 
             Ok(return_value)
         }
-        fn booelan<'a>(instance:&JsInterface<'a>, value: Handle<JsValue>) -> Result<json::JsonValue,Throw> { // ? check boolean type of json
+        fn boolean<'a>(instance:&JsInterface<'a>, value: Handle<JsValue>) -> Result<json::JsonValue,Throw> { // ? check boolean type of json
             let value:Handle<JsBoolean> = value.downcast_or_throw(instance.cx.get_mut())?;
             let value = value.value(instance.cx.get_mut());
 
@@ -197,6 +197,18 @@ impl<'a> JsInterface<'a> {
         }
         fn object<'a>(instance:&JsInterface<'a>, value: Handle<JsValue>) -> Result<json::object::Object,Throw> { 
             // determine type of value with determine_json_type fn
+            let master_value:Handle<JsObject> = value.downcast_or_throw(instance.cx.get_mut())?;
+            let keys = master_value.get_own_property_names(instance.cx.get_mut())?.to_vec(instance.cx.get_mut())?;
+
+            for key in keys {
+                let value = master_value.get(instance.cx.get_mut(), key.clone())?;
+                match instance.determine_js_type(&value) {
+                    // TODO : Here
+                }
+            }
+
+            Ok(())
+            
         }
         fn string<'a>(instance:&JsInterface<'a>, value: Handle<JsValue>) -> Result<json::JsonValue,Throw> { 
             let value : Handle<JsString> = value.downcast_or_throw(instance.cx.get_mut())?;
