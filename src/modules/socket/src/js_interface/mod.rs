@@ -160,7 +160,7 @@ impl<'a> JsInterface<'a> {
                         return_value.push(boolean(&instance, v)?);
                     }
                     JsonTypes::Null => {
-                        return_value.push(null(&instance, v)?); // How about Null?
+                        return_value.push(null(&instance, v)?);
                     }
                     JsonTypes::Number => {
                         return_value.push(number(&instance, v)?);
@@ -172,9 +172,8 @@ impl<'a> JsInterface<'a> {
                         return_value.push(string(&instance, v)?);
                     }
                     JsonTypes::Unknown => {
-                        return Err(QuickSocketError::JsonParseFail.to_box());
+                        return instance.cx.borrow().throw_error("json data invalid");
                     }
-                    // todo : etc...
                 }
             };
 
@@ -213,6 +212,8 @@ impl<'a> JsInterface<'a> {
         fn string<'a>(instance:&JsInterface<'a>, value: Handle<JsValue>) -> Result<json::JsonValue,Throw> { 
             let value : Handle<JsString> = value.downcast_or_throw(instance.cx.get_mut())?;
             let value = value.value(instance.cx.get_mut());
+
+            Ok(value.into())
         }
 
     }
