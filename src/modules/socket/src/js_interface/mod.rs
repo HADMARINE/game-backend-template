@@ -91,7 +91,7 @@ impl<'a> JsInterface<'a> {
         let mut mapped_data: JsonValue = JsonValue::new_object();
 
         for key in data_keys {
-            let value = data.get(&mut cx, key)?.is_a<(cx);
+            let value = data.get(&mut cx, key)?.is_a(cx);
             // TODO : create parser here!
         }
 
@@ -145,16 +145,16 @@ impl<'a> JsInterface<'a> {
     }
 
     pub fn parse_js_to_json(&self, value: Handle<JsObject>) -> Result<json::object::Object, Box<dyn std::error::Error>> {
-        fn array<'a>(instance:&JsInterface<'a>, value: Handle<JsValue>) -> Result<json::JsonValue,Throw> {
+        fn array<'a>(instance:&JsInterface<'a>, value: Handle<JsValue>) -> Result<json::Array,Throw> {
             let values:Handle<JsArray> = value.downcast_or_throw(instance.cx.get_mut())?;
             let values = values.to_vec(instance.cx.get_mut())?;
 
-            let mut return_value = json::JsonValue::new_array();
+            let mut return_value = vec![];
             
             for v in values {
                 match instance.determine_js_type(&v) {
                     JsonTypes::Array => {
-                         return_value.push(array(&instance, v)?);
+                         return_value.push(array(&instance, v)?.into());
                     }
                     JsonTypes::Boolean => {
                         return_value.push(boolean(&instance, v)?);
@@ -163,10 +163,10 @@ impl<'a> JsInterface<'a> {
                         return_value.push(null(&instance, v)?);
                     }
                     JsonTypes::Number => {
-                        return_value.push(number(&instance, v)?);
+                        return_value.push(number(&instance, v)?.into());
                     }
                     JsonTypes::Object => {
-                        return_value.push(object(&instance, v)?);
+                        return_value.push(object(&instance, v)?.into());
                     }
                     JsonTypes::String => {
                         return_value.push(string(&instance, v)?);
@@ -199,14 +199,40 @@ impl<'a> JsInterface<'a> {
             let master_value:Handle<JsObject> = value.downcast_or_throw(instance.cx.get_mut())?;
             let keys = master_value.get_own_property_names(instance.cx.get_mut())?.to_vec(instance.cx.get_mut())?;
 
+            let return_value = json::object::Object::new();
+
             for key in keys {
                 let value = master_value.get(instance.cx.get_mut(), key.clone())?;
+                let key:Handle<JsString> = key.downcast_or_throw(instance.cx.get_mut())?;
+                let key = key.value(instance.cx.get_mut());
                 match instance.determine_js_type(&value) {
+                    JsonTypes::Array => {
+                        return_value.insert(key.as_str(),array(&instance, value)?.into());
+                    }
+                    JsonTypes::Boolean => {
+                        return_value.insert(key.as_str(), boolean(&instance, value)?);
+                    }
+                    JsonTypes::Null => {
+                        return_value.insert(key.as_str(), null(&instance, value)?);
+                    }
+                    JsonTypes::Number => {
+                        return_value.insert(key.as_str(), number(&instance, value)?.into());
+                    }
+                    JsonTypes::Object => {
+                        return_value.insert(key.as_str(), object(&instance, value)?.into());
+                    }
+                    JsonTypes::String => {
+                        return_value.insert(key.as_str(), string(&instance, value)?);
+                    }
+                    JsonTypes::Unknown => {
+                        return instance.cx.borrow().throw_error("json parse fail");
+                    }
+
                     // TODO : Here
                 }
             }
 
-            Ok(())
+            Ok(return_value)
             
         }
         fn string<'a>(instance:&JsInterface<'a>, value: Handle<JsValue>) -> Result<json::JsonValue,Throw> { 
@@ -216,9 +242,14 @@ impl<'a> JsInterface<'a> {
             Ok(value.into())
         }
 
+        Ok(match object(&self, value.upcast()) {
+            Ok(v) =>v,
+            Err(_) => return Err(QuickSocketError::JsonParseFail.to_box())
+        })
+
     }
 
-    pub fn parse_json_to_js(&self, value: json::object::Object) -> Result<Handle<JsObject>, Box<dyn std::error::Error>> {
+    pub fn parse_json_to_js(&self, value: json::object::Object) -> Result<Handle<JsObject>, Throw> {
         // fn array()
         // fn booelan()
         // fn null()
