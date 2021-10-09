@@ -1,19 +1,7 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    net::SocketAddr,
-    rc::Rc,
-    sync::{Arc, RwLock},
-};
+use std::{borrow::BorrowMut, cell::RefCell, collections::HashMap, net::SocketAddr, rc::Rc, sync::{Arc, RwLock}};
 
 use json::JsonValue;
-use neon::{
-    prelude::{
-        Context, Finalize, FunctionContext, Handle, JsBoolean, JsBox, JsFunction, JsObject,
-        JsResult, JsString, JsUndefined, Object, Value,
-    },
-    result::Throw,
-};
+use neon::{prelude::{Context, Finalize, FunctionContext, Handle, JsArray, JsBoolean, JsBox, JsFunction, JsNull, JsNumber, JsObject, JsResult, JsString, JsUndefined, JsValue, Object, Value}, result::Throw};
 
 use crate::socket_instance::ChannelImpl;
 
@@ -31,6 +19,16 @@ pub struct JsInterface<'a> {
 impl<'a> Finalize for JsInterface<'a> {}
 unsafe impl<'a> Sync for JsInterface<'a> {}
 unsafe impl<'a> Send for JsInterface<'a> {}
+
+enum JsonTypes {
+    Array,
+    Boolean,
+    Null,
+    Number,
+    Object,
+    String,
+    Unknown
+}
 
 impl<'a> JsInterface<'a> {
     pub fn new(
@@ -60,6 +58,7 @@ impl<'a> JsInterface<'a> {
         let event = JsString::new(self.cx.get_mut(), event);
         let mapped_data = self.cx.borrow().empty_object();
         for (key, value) in data.iter() {
+            value.
             // TODO : Create parser!
         }
 
@@ -91,7 +90,8 @@ impl<'a> JsInterface<'a> {
 
         let mut mapped_data: JsonValue = JsonValue::new_object();
 
-        for k in data_keys {
+        for key in data_keys {
+            let value = data.get(&mut cx, key)?.is_a<(cx);
             // TODO : create parser here!
         }
 
@@ -106,6 +106,61 @@ impl<'a> JsInterface<'a> {
         };
 
         Ok(cx.undefined())
+    }
+
+    pub fn determine_type(&self, value: &Handle<JsValue>) -> JsonTypes {
+        if value.is_a::<JsArray, _>(self.cx.get_mut()) {
+            JsonTypes::Array
+        } else if value.is_a::<JsBoolean,_>(self.cx.get_mut()) {
+            JsonTypes::Boolean
+        }   else if value.is_a::<JsNull,_>(self.cx.get_mut()) {
+            JsonTypes::Null
+        }else if value.is_a::<JsNumber,_>(self.cx.get_mut()) {
+            JsonTypes::Number
+        }else if value.is_a::<JsObject,_>(self.cx.get_mut()) {
+            JsonTypes::Object
+        } else if value.is_a::<JsString,_>(self.cx.get_mut()) {
+            JsonTypes::String
+        }else {
+            JsonTypes::Unknown
+        }
+    }
+
+    pub fn parse_js_to_json(&self, value: Handle<JsObject>) -> Result<json::object::Object, Box<dyn std::error::Error>> {
+        fn array<'a>(instance:&JsInterface<'a>, value: Handle<JsValue>) -> Result<json::Array,Throw> {
+            let values:Handle<JsArray> = value.downcast_or_throw(instance.cx.get_mut())?;
+            let values = values.to_vec(instance.cx.get_mut())?;
+
+            let mut return_value = json::JsonValue::new_array();
+            
+            for v in values {
+                match instance.determine_type(&v) {
+                    JsonTypes::Array => {
+                         return_value.push(array(&instance, v)?);
+                    }
+                    JsonTypes::Boolean => {
+                        return_value.push(boolean(&instance, v)?);
+                    }
+                    // todo : etc...
+                }
+            };
+
+            Ok(return_value)
+        }
+        fn booelan()
+        fn null()
+        fn number()
+        fn object()
+        fn string()
+    }
+
+    pub fn parse_json_to_js(&self, value: json::object::Object) -> Result<Handle<JsObject>, Box<dyn std::error::Error>> {
+        // fn array()
+        // fn booelan()
+        // fn null()
+        // fn number()
+        // fn object()
+        // fn string()
     }
 }
 
