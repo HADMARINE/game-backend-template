@@ -1,6 +1,8 @@
 # TO DO STUFF
 
 - [ ] write d.ts for socket (rust bindings)
+- [ ] write wrapper code for bindings
+- [ ] test bindings between node thread and rust threads
 
 - [x] Create manager (resolved with gulp)
   - [x] Rust auto builder https://stackabuse.com/executing-shell-commands-with-node-js/
