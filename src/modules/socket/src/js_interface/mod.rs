@@ -1,21 +1,12 @@
 use std::{
-    any::Any,
-    borrow::BorrowMut,
-    cell::RefCell,
-    collections::HashMap,
-    convert::TryInto,
-    net::SocketAddr,
-    rc::Rc,
-    sync::{Arc, RwLock},
+    cell::RefCell, collections::HashMap, convert::TryInto, net::SocketAddr, rc::Rc, sync::Arc,
 };
 
 use json::JsonValue;
 use neon::{
-    handle::Managed,
     prelude::{
-        CallContext, Context, Finalize, FunctionContext, Handle, JsArray, JsBoolean, JsBox,
-        JsFunction, JsNull, JsNumber, JsObject, JsResult, JsString, JsUndefined, JsValue, Object,
-        Value,
+        Context, Finalize, FunctionContext, Handle, JsArray, JsBoolean, JsBox, JsFunction, JsNull,
+        JsNumber, JsObject, JsResult, JsString, JsUndefined, JsValue, Object,
     },
     result::Throw,
 };
@@ -72,17 +63,17 @@ impl<'a> JsInterface<'a> {
         event: String,
         data: json::object::Object,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let event = JsString::new(self.cx.get_mut(), event);
-        let parsed_data = self.parse_json_to_js(data)?;
+        let event: Handle<JsValue> = JsString::new(&mut *self.cx.borrow_mut(), event).upcast();
+        let parsed_data: Handle<JsValue> = self.parse_json_to_js(data)?.upcast();
 
-        let final_data = self.cx.borrow().empty_object();
-        final_data.set(self.cx.get_mut(), "event", event);
-        final_data.set(self.cx.get_mut(), "data", parsed_data);
+        // let final_data = self.cx.borrow().empty_object();
+        // final_data.set(&mut *self.cx.borrow_mut(), "event", event);
+        // final_data.set(&mut *self.cx.borrow_mut(), "data", parsed_data);
 
         self.js_handler.call(
-            self.cx.get_mut(),
-            self.cx.get_mut().null(),
-            vec![final_data],
+            &mut *self.cx.borrow_mut(),
+            self.cx.borrow_mut().null(),
+            vec![event, parsed_data],
         );
 
         Ok(())
@@ -111,17 +102,17 @@ impl<'a> JsInterface<'a> {
     }
 
     pub fn determine_js_type(&self, value: &Handle<JsValue>) -> JsonTypes {
-        if value.is_a::<JsArray, _>(self.cx.get_mut()) {
+        if value.is_a::<JsArray, _>(&mut *self.cx.borrow_mut()) {
             JsonTypes::Array
-        } else if value.is_a::<JsBoolean, _>(self.cx.get_mut()) {
+        } else if value.is_a::<JsBoolean, _>(&mut *self.cx.borrow_mut()) {
             JsonTypes::Boolean
-        } else if value.is_a::<JsNull, _>(self.cx.get_mut()) {
+        } else if value.is_a::<JsNull, _>(&mut *self.cx.borrow_mut()) {
             JsonTypes::Null
-        } else if value.is_a::<JsNumber, _>(self.cx.get_mut()) {
+        } else if value.is_a::<JsNumber, _>(&mut *self.cx.borrow_mut()) {
             JsonTypes::Number
-        } else if value.is_a::<JsObject, _>(self.cx.get_mut()) {
+        } else if value.is_a::<JsObject, _>(&mut *self.cx.borrow_mut()) {
             JsonTypes::Object
-        } else if value.is_a::<JsString, _>(self.cx.get_mut()) {
+        } else if value.is_a::<JsString, _>(&mut *self.cx.borrow_mut()) {
             JsonTypes::String
         } else {
             JsonTypes::Unknown
@@ -151,8 +142,9 @@ impl<'a> JsInterface<'a> {
             instance: &JsInterface<'a>,
             value: Handle<JsValue>,
         ) -> Result<json::Array, Throw> {
-            let values: Handle<JsArray> = value.downcast_or_throw(instance.cx.get_mut())?;
-            let values = values.to_vec(instance.cx.get_mut())?;
+            let values: Handle<JsArray> =
+                value.downcast_or_throw(&mut *instance.cx.borrow_mut())?;
+            let values = values.to_vec(&mut *instance.cx.borrow_mut())?;
 
             let mut return_value = vec![];
 
@@ -177,7 +169,7 @@ impl<'a> JsInterface<'a> {
                         return_value.push(string(&instance, v)?);
                     }
                     JsonTypes::Unknown => {
-                        return instance.cx.borrow().throw_error("json data invalid");
+                        return instance.cx.borrow_mut().throw_error("json data invalid");
                     }
                 }
             }
@@ -189,8 +181,9 @@ impl<'a> JsInterface<'a> {
             value: Handle<JsValue>,
         ) -> Result<json::JsonValue, Throw> {
             // ? check boolean type of json
-            let value: Handle<JsBoolean> = value.downcast_or_throw(instance.cx.get_mut())?;
-            let value = value.value(instance.cx.get_mut());
+            let value: Handle<JsBoolean> =
+                value.downcast_or_throw(&mut *instance.cx.borrow_mut())?;
+            let value = value.value(&mut *instance.cx.borrow_mut());
 
             Ok(value.into())
         }
@@ -204,8 +197,9 @@ impl<'a> JsInterface<'a> {
             instance: &JsInterface<'a>,
             value: Handle<JsValue>,
         ) -> Result<json::number::Number, Throw> {
-            let value: Handle<JsNumber> = value.downcast_or_throw(instance.cx.get_mut())?;
-            let value = value.value(instance.cx.get_mut());
+            let value: Handle<JsNumber> =
+                value.downcast_or_throw(&mut *instance.cx.borrow_mut())?;
+            let value = value.value(&mut *instance.cx.borrow_mut());
 
             Ok(value.into())
         }
@@ -214,17 +208,19 @@ impl<'a> JsInterface<'a> {
             value: Handle<JsValue>,
         ) -> Result<json::object::Object, Throw> {
             // determine type of value with determine_json_type fn
-            let master_value: Handle<JsObject> = value.downcast_or_throw(instance.cx.get_mut())?;
+            let master_value: Handle<JsObject> =
+                value.downcast_or_throw(&mut *instance.cx.borrow_mut())?;
             let keys = master_value
-                .get_own_property_names(instance.cx.get_mut())?
-                .to_vec(instance.cx.get_mut())?;
+                .get_own_property_names(&mut *instance.cx.borrow_mut())?
+                .to_vec(&mut *instance.cx.borrow_mut())?;
 
-            let return_value = json::object::Object::new();
+            let mut return_value = json::object::Object::new();
 
             for key in keys {
-                let value = master_value.get(instance.cx.get_mut(), key.clone())?;
-                let key: Handle<JsString> = key.downcast_or_throw(instance.cx.get_mut())?;
-                let key = key.value(instance.cx.get_mut());
+                let value = master_value.get(&mut *instance.cx.borrow_mut(), key.clone())?;
+                let key: Handle<JsString> =
+                    key.downcast_or_throw(&mut *instance.cx.borrow_mut())?;
+                let key = key.value(&mut *instance.cx.borrow_mut());
                 match instance.determine_js_type(&value) {
                     JsonTypes::Array => {
                         return_value.insert(key.as_str(), array(&instance, value)?.into());
@@ -245,7 +241,7 @@ impl<'a> JsInterface<'a> {
                         return_value.insert(key.as_str(), string(&instance, value)?);
                     }
                     JsonTypes::Unknown => {
-                        return instance.cx.borrow().throw_error("json parse fail");
+                        return instance.cx.borrow_mut().throw_error("json parse fail");
                     }
                 }
             }
@@ -256,27 +252,28 @@ impl<'a> JsInterface<'a> {
             instance: &JsInterface<'a>,
             value: Handle<JsValue>,
         ) -> Result<json::JsonValue, Throw> {
-            let value: Handle<JsString> = value.downcast_or_throw(instance.cx.get_mut())?;
-            let value = value.value(instance.cx.get_mut());
+            let value: Handle<JsString> =
+                value.downcast_or_throw(&mut *instance.cx.borrow_mut())?;
+            let value = value.value(&mut *instance.cx.borrow_mut());
 
             Ok(value.into())
         }
 
         Ok(match object(&self, value.upcast()) {
             Ok(v) => v,
-            Err(_) => return self.cx.borrow().throw_error("json parse fail"),
+            Err(_) => return self.cx.borrow_mut().throw_error("json parse fail"),
         })
     }
 
     pub fn parse_json_to_js(
         &self,
         value: json::object::Object,
-    ) -> Result<Handle<JsObject>, Box<std::error::Error>> {
+    ) -> Result<Handle<JsObject>, Box<dyn std::error::Error>> {
         fn array<'a>(
             instance: &JsInterface<'a>,
             value: JsonValue,
         ) -> Result<Handle<'a, JsArray>, Box<dyn std::error::Error>> {
-            let return_array: Vec<Handle<JsValue>> = vec![];
+            let mut return_array: Vec<Handle<JsValue>> = vec![];
 
             for v in value.members() {
                 let val = match instance.determine_json_type(&v) {
@@ -292,10 +289,13 @@ impl<'a> JsInterface<'a> {
                 return_array.push(val);
             }
 
-            let js_array = JsArray::new(instance.cx.get_mut(), return_array.len().try_into()?);
+            let js_array = JsArray::new(
+                &mut *instance.cx.borrow_mut(),
+                return_array.len().try_into()?,
+            );
 
             for (i, s) in return_array.iter().enumerate() {
-                match js_array.set(instance.cx.get_mut(), i as u32, s.to_owned()) {
+                match js_array.set(&mut *instance.cx.borrow_mut(), i as u32, s.to_owned()) {
                     Ok(v) => continue,
                     Err(_) => return Err(QuickSocketError::JsonParseFail.to_box()),
                 };
@@ -312,13 +312,13 @@ impl<'a> JsInterface<'a> {
                 None => return Err(QuickSocketError::JsonParseFail.to_box()),
             };
 
-            Ok(JsBoolean::new(instance.cx.get_mut(), value))
+            Ok(JsBoolean::new(&mut *instance.cx.borrow_mut(), value))
         }
         fn null<'a>(
             instance: &JsInterface<'a>,
             value: JsonValue,
         ) -> Result<Handle<'a, JsNull>, Box<dyn std::error::Error>> {
-            Ok(JsNull::new(instance.cx.get_mut()))
+            Ok(JsNull::new(&mut *instance.cx.borrow_mut()))
         }
         fn number<'a>(
             instance: &JsInterface<'a>,
@@ -329,13 +329,13 @@ impl<'a> JsInterface<'a> {
                 None => return Err(QuickSocketError::JsonParseFail.to_box()),
             };
 
-            Ok(JsNumber::new::<_, f64>(instance.cx.get_mut(), v))
+            Ok(JsNumber::new::<_, f64>(&mut *instance.cx.borrow_mut(), v))
         }
         fn object<'a>(
             instance: &JsInterface<'a>,
             value: JsonValue,
         ) -> Result<Handle<'a, JsObject>, Box<dyn std::error::Error>> {
-            let jsObject = JsObject::new(instance.cx.get_mut());
+            let jsObject = JsObject::new(&mut *instance.cx.borrow_mut());
 
             for (key, value) in value.entries() {
                 let value = value.to_owned();
@@ -349,7 +349,7 @@ impl<'a> JsInterface<'a> {
                     JsonTypes::Unknown => return Err(QuickSocketError::JsonParseFail.to_box()),
                 };
 
-                jsObject.set(instance.cx.get_mut(), key, value);
+                jsObject.set(&mut *instance.cx.borrow_mut(), key, value);
             }
 
             Ok(jsObject)
@@ -363,7 +363,7 @@ impl<'a> JsInterface<'a> {
                 None => return Err(QuickSocketError::JsonParseFail.to_box()),
             };
 
-            Ok(JsString::new(instance.cx.get_mut(), value))
+            Ok(JsString::new(&mut *instance.cx.borrow_mut(), value))
         }
 
         Ok(object(self, json::JsonValue::Object(value))?)
@@ -372,5 +372,6 @@ impl<'a> JsInterface<'a> {
 
 pub fn socket_data_handler(mut cx: FunctionContext) -> JsResult<JsUndefined> {
     let interface = cx.argument::<BoxedJsInterface>(0)?;
-    interface.borrow_mut().socket_data_handler(cx)
+    let borrowed = interface.borrow_mut();
+    borrowed.socket_data_handler(cx)
 }

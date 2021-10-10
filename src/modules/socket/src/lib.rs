@@ -114,7 +114,7 @@ fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
     );
     return_object.set(
         interface.cx.get_mut(),
-        "socket_handler",
+        "socketHandler",
         JsFunction::new(interface.cx.get_mut(), js_interface::socket_data_handler)?,
     );
 
@@ -123,7 +123,7 @@ fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
 
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
-    cx.export_function("createVacantTcpChannel", create_tcp_channel)?;
+    cx.export_function("createTcpChannel", create_tcp_channel)?;
     cx.export_function("createUdpChannel", create_udp_channel)?;
     Ok(())
 }
