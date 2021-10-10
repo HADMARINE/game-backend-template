@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     borrow::BorrowMut,
     cell::RefCell,
     collections::HashMap,
@@ -10,8 +11,9 @@ use std::{
 use json::JsonValue;
 use neon::{
     prelude::{
-        Context, Finalize, FunctionContext, Handle, JsArray, JsBoolean, JsBox, JsFunction, JsNull,
-        JsNumber, JsObject, JsResult, JsString, JsUndefined, JsValue, Object, Value,
+        CallContext, Context, Finalize, FunctionContext, Handle, JsArray, JsBoolean, JsBox,
+        JsFunction, JsNull, JsNumber, JsObject, JsResult, JsString, JsUndefined, JsValue, Object,
+        Value,
     },
     result::Throw,
 };
@@ -279,30 +281,63 @@ impl<'a> JsInterface<'a> {
         &self,
         value: json::object::Object,
     ) -> Result<Handle<JsObject>, Box<std::error::Error>> {
-        fn array<'a>(instance: &JsInterface<'a>, value: JsonValue) -> JsArray {
+        fn array<'a>(
+            instance: &JsInterface<'a>,
+            value: JsonValue,
+        ) -> Result<Handle<'a, JsArray>, Box<dyn std::error::Error>> {
             // TODO : solve this
         }
-        fn booelan<'a>(instance: &JsInterface<'a>, value: JsonValue) -> Handle<'a,JsBoolean> {
-            let value  = match value.as_bool() {
+        fn booelan<'a>(
+            instance: &JsInterface<'a>,
+            value: JsonValue,
+        ) -> Result<Handle<'a, JsBoolean>, Box<dyn std::error::Error>> {
+            let value = match value.as_bool() {
                 Some(v) => v,
-                None => return Err(Throw)
+                None => return Err(QuickSocketError::JsonParseFail.to_box()),
             };
 
-            JsBoolean::new(instance.cx.get_mut(),)
+            Ok(JsBoolean::new(instance.cx.get_mut(), value))
         }
-        fn null<'a>(instance: &JsInterface<'a>, value: JsonValue) -> Handle<'a, JsNull> {
-            JsNull::new(instance.cx.get_mut())
+        fn null<'a>(
+            instance: &JsInterface<'a>,
+            value: JsonValue,
+        ) -> Result<Handle<'a, JsNull>, Box<dyn std::error::Error>> {
+            Ok(JsNull::new(instance.cx.get_mut()))
         }
-        fn number<'a>(instance: &JsInterface<'a>, value: JsonValue) -> Handle<'a, JsNumber> {
-            instance.cx.get_mut(), value.as_i32().into()
-        }
-        fn object<'a>(instance: &JsInterface<'a>, value: JsonValue) -> Handle<'a,JsObject> {
-            // TODO : solve this
-            // let obj = JsObject::new(instance.cx.get_mut());
-            // value.
-        }
-        fn string<'a>(instance: &JsInterface<'a>, value: JsonValue) -> JsString {}
+        fn number<'a>(
+            instance: &JsInterface<'a>,
+            value: JsonValue,
+        ) -> Result<Handle<'a, JsNumber>, Box<dyn std::error::Error>> {
+            let v = match value.as_f64() {
+                Some(v) => v,
+                None => return Err(QuickSocketError::JsonParseFail.to_box()),
+            };
 
+            Ok(JsNumber::new::<_, f64>(instance.cx.get_mut(), v))
+        }
+        fn object<'a>(
+            instance: &JsInterface<'a>,
+            value: JsonValue,
+        ) -> Result<Handle<'a, JsObject>, Box<dyn std::error::Error>> {
+            let jsObject = JsObject::new(instance.cx.get_mut());
+
+            for (key, value) in value.entries() {
+                let value = match instance.determine_json_type(value.to_owned()) {
+                    // TODO : match this
+                };
+
+                jsObject.set(instance.cx.get_mut(), key);
+            }
+
+            Ok(jsObject)
+        }
+        fn string<'a>(
+            instance: &JsInterface<'a>,
+            value: JsonValue,
+        ) -> Result<Handle<'a, JsString>, Box<dyn std::error::Error>> {
+        }
+
+        Ok(object(self, json::JsonValue::Object(value))?)
     }
 }
 
