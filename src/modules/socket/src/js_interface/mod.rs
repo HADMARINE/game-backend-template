@@ -3,6 +3,7 @@ use std::{
     borrow::BorrowMut,
     cell::RefCell,
     collections::HashMap,
+    convert::TryInto,
     net::SocketAddr,
     rc::Rc,
     sync::{Arc, RwLock},
@@ -10,6 +11,7 @@ use std::{
 
 use json::JsonValue;
 use neon::{
+    handle::Managed,
     prelude::{
         CallContext, Context, Finalize, FunctionContext, Handle, JsArray, JsBoolean, JsBox,
         JsFunction, JsNull, JsNumber, JsObject, JsResult, JsString, JsUndefined, JsValue, Object,
@@ -90,23 +92,12 @@ impl<'a> JsInterface<'a> {
         &self,
         mut cx: FunctionContext<'b>,
     ) -> JsResult<'b, JsUndefined> {
-        let data: Handle<JsObject> = cx.argument(0)?;
-        let event = data
-            .get(&mut cx, "event")?
-            .to_string(&mut cx)?
-            .value(&mut cx);
-        let data: Handle<JsObject> = data.get(&mut cx, "data")?.downcast_or_throw(&mut cx)?;
+        let event: Handle<JsString> = cx.argument(0)?;
+        let data: Handle<JsObject> = cx.argument(1)?;
 
-        let data_keys = data.get_own_property_names(&mut cx)?.to_vec(&mut cx)?;
+        let __data = self.parse_js_to_json(data)?;
 
-        let mut mapped_data: JsonValue = JsonValue::new_object();
-
-        for key in data_keys {
-            let value = data.get(&mut cx, key)?.is_a(cx);
-            // TODO : create parser here!
-        }
-
-        let handler = match self.event_list.get(&event.to_string()) {
+        let handler = match self.event_list.get(&event.value(&mut cx)) {
             Some(v) => v,
             None => return Err(Throw),
         };
@@ -137,7 +128,7 @@ impl<'a> JsInterface<'a> {
         }
     }
 
-    pub fn determine_json_type(&self, value: JsonValue) -> JsonTypes {
+    pub fn determine_json_type(&self, value: &JsonValue) -> JsonTypes {
         if value.is_array() {
             JsonTypes::Array
         } else if value.is_boolean() {
@@ -285,9 +276,34 @@ impl<'a> JsInterface<'a> {
             instance: &JsInterface<'a>,
             value: JsonValue,
         ) -> Result<Handle<'a, JsArray>, Box<dyn std::error::Error>> {
-            // TODO : solve this
+            let return_array: Vec<Handle<JsValue>> = vec![];
+
+            for v in value.members() {
+                let val = match instance.determine_json_type(&v) {
+                    JsonTypes::Array => array(&instance, v.to_owned())?.upcast(),
+                    JsonTypes::Boolean => boolean(&instance, v.to_owned())?.upcast(),
+                    JsonTypes::Null => null(&instance, v.to_owned())?.upcast(),
+                    JsonTypes::Number => number(&instance, v.to_owned())?.upcast(),
+                    JsonTypes::Object => object(&instance, v.to_owned())?.upcast(),
+                    JsonTypes::String => string(&instance, v.to_owned())?.upcast(),
+                    JsonTypes::Unknown => return Err(QuickSocketError::JsonParseFail.to_box()),
+                };
+
+                return_array.push(val);
+            }
+
+            let js_array = JsArray::new(instance.cx.get_mut(), return_array.len().try_into()?);
+
+            for (i, s) in return_array.iter().enumerate() {
+                match js_array.set(instance.cx.get_mut(), i as u32, s.to_owned()) {
+                    Ok(v) => continue,
+                    Err(_) => return Err(QuickSocketError::JsonParseFail.to_box()),
+                };
+            }
+
+            Ok(js_array)
         }
-        fn booelan<'a>(
+        fn boolean<'a>(
             instance: &JsInterface<'a>,
             value: JsonValue,
         ) -> Result<Handle<'a, JsBoolean>, Box<dyn std::error::Error>> {
@@ -322,11 +338,18 @@ impl<'a> JsInterface<'a> {
             let jsObject = JsObject::new(instance.cx.get_mut());
 
             for (key, value) in value.entries() {
-                let value = match instance.determine_json_type(value.to_owned()) {
-                    // TODO : match this
+                let value = value.to_owned();
+                let value: Handle<JsValue> = match instance.determine_json_type(&value) {
+                    JsonTypes::Array => array(&instance, value)?.upcast(),
+                    JsonTypes::Boolean => boolean(&instance, value)?.upcast(),
+                    JsonTypes::Null => null(&instance, value)?.upcast(),
+                    JsonTypes::Number => number(&instance, value)?.upcast(),
+                    JsonTypes::Object => object(&instance, value)?.upcast(),
+                    JsonTypes::String => string(&instance, value)?.upcast(),
+                    JsonTypes::Unknown => return Err(QuickSocketError::JsonParseFail.to_box()),
                 };
 
-                jsObject.set(instance.cx.get_mut(), key);
+                jsObject.set(instance.cx.get_mut(), key, value);
             }
 
             Ok(jsObject)
@@ -335,6 +358,12 @@ impl<'a> JsInterface<'a> {
             instance: &JsInterface<'a>,
             value: JsonValue,
         ) -> Result<Handle<'a, JsString>, Box<dyn std::error::Error>> {
+            let value = match value.as_str() {
+                Some(v) => v.to_string(),
+                None => return Err(QuickSocketError::JsonParseFail.to_box()),
+            };
+
+            Ok(JsString::new(instance.cx.get_mut(), value))
         }
 
         Ok(object(self, json::JsonValue::Object(value))?)
