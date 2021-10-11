@@ -22,11 +22,11 @@ export namespace ChannelCreatePreferences {
   }
 }
 
-export function create_tcp_channel(
+export function createTcpChannel(
   pref: ChannelCreatePreferences.Tcp,
   handler: JsHandlerFunction,
 ): JsInterface;
-export function create_udp_channel(
+export function createUdpChannel(
   pref: ChannelCreatePreferences.Udp,
   handler: JsHandlerFunction,
 ): JsInterface;

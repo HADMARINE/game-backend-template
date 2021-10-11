@@ -1,4 +1,5 @@
 use std::{
+    borrow::BorrowMut,
     cell::RefCell,
     collections::HashMap,
     rc::Rc,
@@ -15,10 +16,13 @@ use socket_instance::{
     QuickSocketInstance, TcpChannelCreatePreferences, UdpChannelCreatePreferences,
 };
 
-static INSTANCE: Arc<RwLock<QuickSocketInstance>> = QuickSocketInstance::new();
+lazy_static::lazy_static! {
+    static ref INSTANCE: Arc<RwLock<QuickSocketInstance>> = QuickSocketInstance::new();
+}
 
 fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
-    let preferences = match TcpChannelCreatePreferences::from_jsobj(&mut cx, cx.argument(0)?) {
+    let arg0 = cx.argument(0)?;
+    let preferences = match TcpChannelCreatePreferences::from_jsobj(&mut cx, arg0) {
         Ok(v) => v,
         Err(_) => return Err(Throw),
     }; // Preferences
@@ -36,11 +40,9 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
 
     drop(write_locked);
 
-    let rc_cx = Rc::new(RefCell::from(cx));
-
     let interface = js_interface::JsInterface::new(
         *handler,
-        match match channel.instance.read() {
+        match match channel.clone().instance.read() {
             Ok(v) => v,
             Err(_) => return Err(cx.throw_error("instance init invalid")?),
         }
@@ -51,26 +53,28 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
         },
         HashMap::new(),
         channel,
-        rc_cx,
+        Rc::new(RefCell::from(cx)),
     );
 
-    let mut return_object = interface.cx.borrow().empty_object();
-    return_object.set(
-        interface.cx.get_mut(),
-        "port",
-        interface.cx.borrow().number(interface.addr.port()),
-    );
-    return_object.set(
-        interface.cx.get_mut(),
-        "socket_handler",
-        JsFunction::new(interface.cx.get_mut(), js_interface::socket_data_handler)?,
-    );
+    let mut cx = match interface.cx.try_borrow_mut() {
+        Ok(v) => v,
+        Err(_) => return Err(Throw),
+    };
+
+    let return_object = cx.empty_object();
+
+    let port_value = cx.number(interface.addr.port());
+    return_object.set(&mut *cx, "port", port_value)?;
+
+    let socket_handler_value = JsFunction::new(&mut *cx, js_interface::socket_data_handler)?;
+    return_object.set(&mut *cx, "socket_handler", socket_handler_value)?;
 
     Ok(return_object)
 }
 
 fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
-    let preferences = match UdpChannelCreatePreferences::from_jsobj(&mut cx, cx.argument(0)?) {
+    let arg0 = cx.argument(0)?;
+    let preferences = match UdpChannelCreatePreferences::from_jsobj(&mut cx, arg0) {
         Ok(v) => v,
         Err(_) => return Err(Throw),
     }; // Preferences
@@ -88,11 +92,9 @@ fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
 
     drop(write_locked);
 
-    let rc_cx = Rc::new(RefCell::from(cx));
-
     let interface = js_interface::JsInterface::new(
         *handler,
-        match match channel.instance.read() {
+        match match channel.clone().instance.read() {
             Ok(v) => v,
             Err(_) => return Err(cx.throw_error("instance init invalid")?),
         }
@@ -103,20 +105,21 @@ fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
         },
         HashMap::new(),
         channel,
-        rc_cx,
+        Rc::new(RefCell::from(cx)),
     );
 
-    let mut return_object = interface.cx.borrow().empty_object();
-    return_object.set(
-        interface.cx.get_mut(),
-        "port",
-        interface.cx.borrow().number(interface.addr.port()),
-    );
-    return_object.set(
-        interface.cx.get_mut(),
-        "socketHandler",
-        JsFunction::new(interface.cx.get_mut(), js_interface::socket_data_handler)?,
-    );
+    let mut cx = match interface.cx.try_borrow_mut() {
+        Ok(v) => v,
+        Err(_) => return Err(Throw),
+    };
+
+    let return_object = cx.empty_object();
+
+    let port_value = cx.number(interface.addr.port());
+    return_object.set(&mut *cx, "port", port_value)?;
+
+    let socket_handler_value = JsFunction::new(&mut *cx, js_interface::socket_data_handler)?;
+    return_object.set(&mut *cx, "socket_handler", socket_handler_value)?;
 
     Ok(return_object)
 }
