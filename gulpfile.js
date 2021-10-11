@@ -56,6 +56,9 @@ gulp.task('compile', (done) => {
 
   const executes = [];
   for (const p of paths) {
+    if (p[0] == '_') {
+      continue;
+    }
     executes.push(
       new Promise((res, rej) =>
         cmd.exec(
