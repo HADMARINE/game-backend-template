@@ -1,6 +1,6 @@
 use crate::error::predeclared::QuickSocketError;
 use json::{object, JsonValue};
-use neon::prelude::{FunctionContext, Handle, JsBoolean, JsObject, Object};
+use neon::prelude::{FunctionContext, Handle, JsBoolean, JsObject, JsString, Object};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -64,10 +64,11 @@ impl ChannelClient {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct TcpChannelCreatePreferences {
     pub delete_client_when_closed: bool,
     pub concurrent: bool,
+    pub preset: Option<String>,
 }
 
 impl TcpChannelCreatePreferences {
@@ -91,6 +92,13 @@ impl TcpChannelCreatePreferences {
                 }
                 Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
             },
+            preset: match argument.get(cx, "preset") {
+                Ok(v) => {
+                    let v: Handle<JsString> = v.downcast(cx)?;
+                    Some(v.value(cx))
+                }
+                Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+            },
         })
     }
 
@@ -105,12 +113,14 @@ impl TcpChannelCreatePreferences {
         TcpChannelCreatePreferences {
             delete_client_when_closed: true,
             concurrent: false,
+            preset: None,
         }
     }
 }
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct UdpChannelCreatePreferences {
-    delete_client_when_closed: bool,
+    pub delete_client_when_closed: bool,
+    pub preset: Option<String>,
 }
 
 impl UdpChannelCreatePreferences {
@@ -127,6 +137,13 @@ impl UdpChannelCreatePreferences {
                 }
                 Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
             },
+            preset: match argument.get(cx, "preset") {
+                Ok(v) => {
+                    let v: Handle<JsString> = v.downcast(cx)?;
+                    Some(v.value(cx))
+                }
+                Err(_) => return Err(QuickSocketError::ChannelInitializeFail.to_box()),
+            },
         })
     }
 
@@ -140,6 +157,7 @@ impl UdpChannelCreatePreferences {
     pub fn default() -> UdpChannelCreatePreferences {
         UdpChannelCreatePreferences {
             delete_client_when_closed: true,
+            preset: None,
         }
     }
 }
