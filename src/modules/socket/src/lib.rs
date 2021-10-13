@@ -23,10 +23,16 @@ lazy_static::lazy_static! {
 
 fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
     let arg0 = cx.argument(0)?;
-    let preferences = match TcpChannelCreatePreferences::from_jsobj(&mut cx, arg0) {
+    let mut preferences = match TcpChannelCreatePreferences::from_jsobj(&mut cx, arg0) {
         Ok(v) => v,
         Err(_) => return Err(Throw),
     }; // Preferences
+
+    let preset = match preferences.preset {
+        Some(v) => v,
+        None => panic!("preset not defined!"),
+    };
+    preferences.preset = None;
 
     let handler: Handle<JsFunction> = cx.argument(1)?;
 
@@ -52,7 +58,7 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
             Ok(v) => v,
             Err(_) => return Err(cx.throw_error("instance init invalid")?),
         },
-        manager("none".into()), // get data from preferences
+        manager(preset),
         channel,
         Rc::new(RefCell::from(cx)),
     );
@@ -80,10 +86,15 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
 
 fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
     let arg0 = cx.argument(0)?;
-    let preferences = match UdpChannelCreatePreferences::from_jsobj(&mut cx, arg0) {
+    let mut preferences = match UdpChannelCreatePreferences::from_jsobj(&mut cx, arg0) {
         Ok(v) => v,
         Err(_) => return Err(Throw),
     }; // Preferences
+    let preset = match preferences.preset {
+        Some(v) => v,
+        None => panic!("preset not defined!"),
+    };
+    preferences.preset = None;
 
     let handler: Handle<JsFunction> = cx.argument(1)?;
 
@@ -109,7 +120,7 @@ fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
             Ok(v) => v,
             Err(_) => return Err(cx.throw_error("instance init invalid")?),
         },
-        HashMap::new(),
+        manager(preset),
         channel,
         Rc::new(RefCell::from(cx)),
     );
