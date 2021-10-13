@@ -127,6 +127,9 @@ fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
     let socket_handler_value = JsFunction::new(&mut *cx, js_interface::socket_data_handler)?;
     return_object.set(&mut *cx, "socket_handler", socket_handler_value)?;
 
+    let boxed_interface = js_interface::JsInterface::to_js_box(cx, interface);
+    return_object.set(cx, "interface", boxed_interface)?;
+
     Ok(return_object)
 }
 
