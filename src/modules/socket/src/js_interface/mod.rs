@@ -58,6 +58,13 @@ impl<'a> JsInterface<'a> {
         }
     }
 
+    pub fn to_js_box(cx: &mut FunctionContext, value: JsInterface) -> BoxedJsInterface {
+        let owned_self = value;
+
+        let res = JsBox::new(cx, RefCell::new(owned_self));
+        *res
+    }
+
     pub fn call_js_handler(
         &self,
         event: String,
@@ -65,10 +72,6 @@ impl<'a> JsInterface<'a> {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let event: Handle<JsValue> = JsString::new(&mut *self.cx.borrow_mut(), event).upcast();
         let parsed_data: Handle<JsValue> = self.parse_json_to_js(data)?.upcast();
-
-        // let final_data = self.cx.borrow().empty_object();
-        // final_data.set(&mut *self.cx.borrow_mut(), "event", event);
-        // final_data.set(&mut *self.cx.borrow_mut(), "data", parsed_data);
 
         self.js_handler.call(
             &mut *self.cx.borrow_mut(),
