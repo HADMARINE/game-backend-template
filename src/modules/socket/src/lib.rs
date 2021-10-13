@@ -1,5 +1,4 @@
 use std::{
-    borrow::BorrowMut,
     cell::RefCell,
     collections::HashMap,
     rc::Rc,
@@ -56,18 +55,23 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
         Rc::new(RefCell::from(cx)),
     );
 
-    let mut cx = match interface.cx.try_borrow_mut() {
-        Ok(v) => v,
-        Err(_) => return Err(Throw),
+    let cx_1 = match interface.cx.clone() {
+        Some(v) => v,
+        None => return Err(Throw),
     };
+
+    let cx = &mut *cx_1.borrow_mut();
 
     let return_object = cx.empty_object();
 
     let port_value = cx.number(interface.addr.port());
-    return_object.set(&mut *cx, "port", port_value)?;
+    return_object.set(cx, "port", port_value)?;
 
-    let socket_handler_value = JsFunction::new(&mut *cx, js_interface::socket_data_handler)?;
-    return_object.set(&mut *cx, "socket_handler", socket_handler_value)?;
+    let socket_handler_value = JsFunction::new(cx, js_interface::socket_data_handler)?;
+    return_object.set(cx, "socket_handler", socket_handler_value)?;
+
+    let boxed_interface = js_interface::JsInterface::to_js_box(cx, interface);
+    return_object.set(cx, "interface", boxed_interface)?;
 
     Ok(return_object)
 }
@@ -108,10 +112,12 @@ fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
         Rc::new(RefCell::from(cx)),
     );
 
-    let mut cx = match interface.cx.try_borrow_mut() {
-        Ok(v) => v,
-        Err(_) => return Err(Throw),
+    let cx_1 = match interface.cx.clone() {
+        Some(v) => v,
+        None => return Err(Throw),
     };
+
+    let cx = &mut *cx_1.borrow_mut();
 
     let return_object = cx.empty_object();
 
