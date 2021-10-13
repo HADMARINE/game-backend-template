@@ -15,10 +15,12 @@ export namespace ChannelCreatePreferences {
   interface Tcp {
     deleteClientWhenClosed: boolean;
     concurrent: boolean;
+    preset: string;
   }
 
   interface Udp {
     deleteClientWhenClosed: boolean;
+    preset: string;
   }
 }
 
