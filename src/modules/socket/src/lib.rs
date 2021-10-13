@@ -5,7 +5,9 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use application::manager::manager;
 use neon::{prelude::*, result::Throw};
+mod application;
 mod error;
 mod js_interface;
 mod socket_instance;
@@ -50,7 +52,7 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
             Ok(v) => v,
             Err(_) => return Err(cx.throw_error("instance init invalid")?),
         },
-        HashMap::new(),
+        manager("none".into()), // get data from preferences
         channel,
         Rc::new(RefCell::from(cx)),
     );

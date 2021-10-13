@@ -16,6 +16,7 @@ import { RateLimiter } from '@util/Middleware';
 import fileUploader from 'express-fileupload';
 import express from 'express';
 import packageJson from '../package.json';
+import socketHandler from './modules/socket';
 
 const PORT: number = parseInt(
   process.env.NODE_ENV === 'production'
@@ -74,6 +75,16 @@ export function Root(port = PORT): ReturnType<typeof ServerStarter> {
   wrapConnectDbWithSync();
 
   const server = ServerStarter({ ...SERVER_STARTER_PROPERTIES, port });
+
+  const tcp = socketHandler.createTcpChannel(
+    {
+      concurrent: false,
+      deleteClientWhenClosed: false,
+      preset: 'none',
+    },
+    (e, v) => {},
+  );
+  console.log(tcp);
 
   cron();
   io(server.server);
