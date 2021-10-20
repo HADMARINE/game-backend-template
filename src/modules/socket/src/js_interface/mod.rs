@@ -11,14 +11,14 @@ use neon::{
     result::Throw,
 };
 
+use crate::app::manager::EventMapType;
 use crate::{error::predeclared::QuickSocketError, socket_instance::ChannelImpl};
 
 type BoxedJsInterface<'a> = JsBox<RefCell<JsInterface<'a>>>;
 
 pub struct JsInterface<'a> {
     js_handler: JsFunction,
-    event_list:
-        HashMap<String, Box<dyn FnOnce(JsonValue) -> Result<(), Box<dyn std::error::Error>>>>,
+    event_list: EventMapType,
     pub addr: SocketAddr,
     channel: Arc<dyn ChannelImpl>,
     pub cx: Option<Rc<RefCell<FunctionContext<'a>>>>,
@@ -42,10 +42,7 @@ impl<'a> JsInterface<'a> {
     pub fn new(
         js_handler: JsFunction,
         addr: SocketAddr,
-        event_list: HashMap<
-            String,
-            Box<dyn FnOnce(JsonValue) -> Result<(), Box<dyn std::error::Error>>>,
-        >,
+        event_list: EventMapType,
         channel: Arc<dyn ChannelImpl>,
         cx: Rc<RefCell<FunctionContext<'a>>>,
     ) -> Self {
@@ -113,9 +110,11 @@ impl<'a> JsInterface<'a> {
             None => return Err(Throw),
         };
 
-        let dd: Handle<JsObject> = match data.downcast(&mut cx) {
-            Ok(v) => v,
-            Err(e) => return cx.throw_error("value invalid"),
+        let json_value = self.parse_js_to_json(data)?;
+
+        match handler(json_value.into(), self) {
+            Err(_) => return cx.throw_error("handler returned error"),
+            _ => (),
         };
 
         Ok(cx.undefined())

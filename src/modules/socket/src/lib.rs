@@ -1,13 +1,12 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
     rc::Rc,
     sync::{Arc, RwLock},
 };
 
-use application::manager::manager;
+use app::manager::manager;
 use neon::{prelude::*, result::Throw};
-mod application;
+mod app;
 mod error;
 mod js_interface;
 mod socket_instance;
