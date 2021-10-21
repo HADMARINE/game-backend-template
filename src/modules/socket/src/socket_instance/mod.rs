@@ -1,3 +1,4 @@
+use crate::app::event::manager;
 use crate::error::predeclared::QuickSocketError;
 use json::{object, JsonValue};
 use neon::prelude::{FunctionContext, Handle, JsBoolean, JsObject, JsString, Object};
@@ -242,7 +243,7 @@ pub struct ChannelController {
     event: String,
     accepted_client: ChannelClient,
     channel: Arc<dyn ChannelImpl>,
-    value: JsonValue,
+    pub value: JsonValue,
 }
 
 impl ChannelController {
@@ -861,7 +862,7 @@ impl QuickSocketInstance {
             registered_client: Arc::new(RwLock::from(vec![])),
             archived_client: Arc::new(RwLock::new(vec![])),
             port,
-            event_handlers: Arc::new(RwLock::from(HashMap::new())),
+            event_handlers: Arc::new(RwLock::from(manager(&pref.preset))),
             is_destroyed: Arc::new(RwLock::from(false)),
             is_event_listener_on: Arc::new(RwLock::from(true)),
             glob_instance: match self.self_instance.clone() {
@@ -1096,7 +1097,7 @@ impl QuickSocketInstance {
             registered_client: Arc::new(RwLock::from(vec![])),
             archived_client: Arc::new(RwLock::new(vec![])),
             port,
-            event_handlers: Arc::new(RwLock::from(HashMap::new())),
+            event_handlers: Arc::new(RwLock::from(manager(&pref.preset))),
             is_destroyed: Arc::new(RwLock::from(false)),
             is_event_listener_on: Arc::new(RwLock::from(true)),
             glob_instance: match self.self_instance.clone() {

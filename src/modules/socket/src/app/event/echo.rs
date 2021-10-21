@@ -2,14 +2,31 @@ use std::collections::HashMap;
 
 use json::JsonValue;
 
-use crate::js_interface::JsInterface;
+use crate::{
+    error::predeclared::QuickSocketError,
+    js_interface::JsInterface,
+    socket_instance::{event::ResponseStatus, ChannelController},
+};
 
 use super::EventMapType;
 
 pub fn get() -> EventMapType {
-    let mut map = HashMap::new();
+    let mut map: EventMapType = HashMap::new();
+
+    map.insert(String::from("echo"), echo);
+    map.insert(String::from("send_to_js"), send_to_js);
 
     map
 }
 
-// fn echo(value: JsonValue, interface: &JsInterface) -> Result<(), Box<dyn std::error::Error>> {}
+fn echo(ctrl: ChannelController) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
+    // ctrl.emit_to(vec![ctrl.accepted_client], ResponseStatus::Ok, ctrl.value);
+
+    Ok(Some(ctrl.value))
+}
+
+fn send_to_js(ctrl: ChannelController) -> Result<Option<JsonValue>, Box<QuickSocketError>> {
+    // ctrl.emit_to(vec![ctrl.accepted_client], ResponseStatus::Ok, ctrl.value);
+
+    Ok(Some(ctrl.value))
+}

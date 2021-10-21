@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use app::manager::manager;
+use json::object;
 use neon::{prelude::*, result::Throw};
 mod app;
 mod error;
@@ -16,6 +16,8 @@ use socket_instance::{
     QuickSocketInstance, TcpChannelCreatePreferences, UdpChannelCreatePreferences,
 };
 
+use crate::error::predeclared::QuickSocketError;
+
 lazy_static::lazy_static! {
     static ref INSTANCE: Arc<RwLock<QuickSocketInstance>> = QuickSocketInstance::new();
 }
@@ -26,12 +28,6 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
         Ok(v) => v,
         Err(_) => return Err(Throw),
     }; // Preferences
-
-    let preset = match preferences.preset {
-        Some(v) => v,
-        None => panic!("preset not defined!"),
-    };
-    preferences.preset = None;
 
     let handler: Handle<JsFunction> = cx.argument(1)?;
 
@@ -57,17 +53,18 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
             Ok(v) => v,
             Err(_) => return Err(cx.throw_error("instance init invalid")?),
         },
-        manager(preset),
         channel,
-        Rc::new(RefCell::from(cx)),
+        Arc::new(RwLock::from(cx)),
     );
 
-    let cx_1 = match interface.cx.clone() {
+    let cx_some = match interface.cx.clone() {
         Some(v) => v,
-        None => return Err(Throw),
+        None => panic!(QuickSocketError::InstanceInitializeInvalid),
     };
-
-    let cx = &mut *cx_1.borrow_mut();
+    let cx = &mut *match cx_some.try_write() {
+        Ok(v) => v,
+        Err(_) => panic!(QuickSocketError::InstanceInitializeInvalid),
+    };
 
     let return_object = cx.empty_object();
 
@@ -89,11 +86,6 @@ fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
         Ok(v) => v,
         Err(_) => return Err(Throw),
     }; // Preferences
-    let preset = match preferences.preset {
-        Some(v) => v,
-        None => panic!("preset not defined!"),
-    };
-    preferences.preset = None;
 
     let handler: Handle<JsFunction> = cx.argument(1)?;
 
@@ -119,25 +111,26 @@ fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
             Ok(v) => v,
             Err(_) => return Err(cx.throw_error("instance init invalid")?),
         },
-        manager(preset),
         channel,
-        Rc::new(RefCell::from(cx)),
+        Arc::new(RwLock::from(cx)),
     );
 
-    let cx_1 = match interface.cx.clone() {
+    let cx_some = match interface.cx.clone() {
         Some(v) => v,
-        None => return Err(Throw),
+        None => panic!(QuickSocketError::InstanceInitializeInvalid),
     };
-
-    let cx = &mut *cx_1.borrow_mut();
+    let cx = &mut *match cx_some.try_write() {
+        Ok(v) => v,
+        Err(_) => panic!(QuickSocketError::InstanceInitializeInvalid),
+    };
 
     let return_object = cx.empty_object();
 
     let port_value = cx.number(interface.addr.port());
-    return_object.set(&mut *cx, "port", port_value)?;
+    return_object.set(cx, "port", port_value)?;
 
-    let socket_handler_value = JsFunction::new(&mut *cx, js_interface::socket_data_handler)?;
-    return_object.set(&mut *cx, "socket_handler", socket_handler_value)?;
+    let socket_handler_value = JsFunction::new(cx, js_interface::socket_data_handler)?;
+    return_object.set(cx, "socket_handler", socket_handler_value)?;
 
     let boxed_interface = js_interface::JsInterface::to_js_box(cx, interface);
     return_object.set(cx, "interface", boxed_interface)?;

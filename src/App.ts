@@ -80,9 +80,16 @@ export function Root(port = PORT): ReturnType<typeof ServerStarter> {
     {
       concurrent: false,
       deleteClientWhenClosed: false,
-      preset: 'none',
+      preset: 'echo',
     },
-    (e, v) => {},
+    (e, v) => {
+      console.log(e, v);
+      switch (e) {
+        case 'echo':
+          console.log(e);
+          break;
+      }
+    },
   );
   console.log(tcp);
 

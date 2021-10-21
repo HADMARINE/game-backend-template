@@ -8,14 +8,16 @@ use std::collections::HashMap;
 pub type BridgeMapType = HashMap<String, BridgeHandlerType>;
 
 pub type BridgeHandlerType =
-    Box<dyn FnOnce(JsonValue, &JsInterface) -> Result<(), Box<dyn std::error::Error>>>;
+    Box<dyn Fn(JsonValue, &JsInterface) -> Result<(), Box<dyn std::error::Error>>>;
 
-pub fn manager(preset: String) -> BridgeMapType {
-    return match preset.as_str() {
-        "none" => HashMap::new(),
-        "echo" => echo::get(),
-        _ => {
-            panic!("Invalid preset : {}", preset);
-        }
-    };
+pub fn manager() -> BridgeMapType {
+    // return match preset.as_str() {
+    //     "none" => HashMap::new(),
+    //     "echo" => echo::get(),
+    //     _ => {
+    //         panic!("Invalid preset : {}", preset);
+    //     }
+    // };
+    let map = HashMap::new(); // TODO : Complete this
+    map
 }
