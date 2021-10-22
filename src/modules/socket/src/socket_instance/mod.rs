@@ -1,5 +1,6 @@
 use crate::app::event::manager;
 use crate::error::predeclared::QuickSocketError;
+use crate::js_interface::JsInterface;
 use json::{object, JsonValue};
 use neon::prelude::{FunctionContext, Handle, JsBoolean, JsObject, JsString, Object};
 use std::cell::RefCell;
@@ -43,6 +44,7 @@ pub struct QuickSocketInstance {
     >,
     pub properties: Properties,
     pub self_instance: Option<Arc<RwLock<QuickSocketInstance>>>,
+    // pub js_interface: Option<JsInterface>
 }
 
 #[derive(Clone, Debug)]

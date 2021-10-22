@@ -18,6 +18,12 @@ pub fn manager() -> BridgeMapType {
     //         panic!("Invalid preset : {}", preset);
     //     }
     // };
-    let map = HashMap::new(); // TODO : Complete this
+    let map: BridgeMapType = HashMap::new(); // TODO : Complete this
+
+    map.insert(String::from("print"), Box::new(print));
     map
+}
+
+fn print(value: JsonValue, interface: &JsInterface) -> Result<(), Box<dyn std::error::Error>> {
+    println!("value: {}", value.as_str());
 }

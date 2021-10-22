@@ -24,7 +24,7 @@ lazy_static::lazy_static! {
 
 fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
     let arg0 = cx.argument(0)?;
-    let mut preferences = match TcpChannelCreatePreferences::from_jsobj(&mut cx, arg0) {
+    let preferences = match TcpChannelCreatePreferences::from_jsobj(&mut cx, arg0) {
         Ok(v) => v,
         Err(_) => return Err(Throw),
     }; // Preferences
@@ -59,11 +59,11 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
 
     let cx_some = match interface.cx.clone() {
         Some(v) => v,
-        None => panic!(QuickSocketError::InstanceInitializeInvalid),
+        None => panic!(QuickSocketError::InstanceInitializeInvalid.to_string()),
     };
     let cx = &mut *match cx_some.try_write() {
         Ok(v) => v,
-        Err(_) => panic!(QuickSocketError::InstanceInitializeInvalid),
+        Err(_) => panic!(QuickSocketError::InstanceInitializeInvalid.to_string()),
     };
 
     let return_object = cx.empty_object();

@@ -16,7 +16,8 @@ import { RateLimiter } from '@util/Middleware';
 import fileUploader from 'express-fileupload';
 import express from 'express';
 import packageJson from '../package.json';
-import socketHandler from './modules/socket';
+// import socketHandler from './modules/socket';
+import socketManager from '@lib/quick-socket';
 
 const PORT: number = parseInt(
   process.env.NODE_ENV === 'production'
@@ -76,7 +77,24 @@ export function Root(port = PORT): ReturnType<typeof ServerStarter> {
 
   const server = ServerStarter({ ...SERVER_STARTER_PROPERTIES, port });
 
-  const tcp = socketHandler.createTcpChannel(
+  // const tcp = socketHandler.createTcpChannel(
+  //   {
+  //     concurrent: false,
+  //     deleteClientWhenClosed: false,
+  //     preset: 'echo',
+  //   },
+  //   (e, v) => {
+  //     console.log(e, v);
+  //     switch (e) {
+  //       case 'echo':
+  //         console.log(e);
+  //         break;
+  //     }
+  //   },
+  // );
+  // console.log(tcp);
+
+  const tcp = socketManager.createTcpChannel(
     {
       concurrent: false,
       deleteClientWhenClosed: false,
@@ -91,7 +109,10 @@ export function Root(port = PORT): ReturnType<typeof ServerStarter> {
       }
     },
   );
+
   console.log(tcp);
+
+  tcp.socketHandler({ event: 'Hello', data: 'world' });
 
   cron();
   io(server.server);
