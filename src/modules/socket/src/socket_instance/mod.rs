@@ -1,4 +1,6 @@
+use crate::app::event::manager;
 use crate::error::predeclared::QuickSocketError;
+use crate::js_interface::{JsHandlerContainer, JsInterface};
 use json::{object, JsonValue};
 use neon::prelude::{FunctionContext, Handle, JsBoolean, JsObject, JsString, Object};
 use std::cell::RefCell;
@@ -42,6 +44,7 @@ pub struct QuickSocketInstance {
     >,
     pub properties: Properties,
     pub self_instance: Option<Arc<RwLock<QuickSocketInstance>>>,
+    // pub js_interface: Option<JsInterface>
 }
 
 #[derive(Clone, Debug)]
@@ -224,6 +227,7 @@ pub struct Channel<T> {
     pub channel_id: String,
     pub port: u16,
     pub pref: ChannelCreatePreferences,
+    pub js_handler: JsHandlerContainer<'static>,
     event_handlers: Arc<
         RwLock<
             HashMap<
@@ -242,7 +246,7 @@ pub struct ChannelController {
     event: String,
     accepted_client: ChannelClient,
     channel: Arc<dyn ChannelImpl>,
-    value: JsonValue,
+    pub value: JsonValue,
 }
 
 impl ChannelController {
@@ -838,6 +842,7 @@ impl QuickSocketInstance {
     pub fn create_tcp_channel(
         &self,
         setter: fn(&mut TcpChannel),
+        handler: JsHandlerContainer,
         pref: TcpChannelCreatePreferences,
     ) -> Result<Arc<TcpChannel>, Box<dyn std::error::Error>> {
         let addr = "127.0.0.1:0";
@@ -861,7 +866,7 @@ impl QuickSocketInstance {
             registered_client: Arc::new(RwLock::from(vec![])),
             archived_client: Arc::new(RwLock::new(vec![])),
             port,
-            event_handlers: Arc::new(RwLock::from(HashMap::new())),
+            event_handlers: Arc::new(RwLock::from(manager(&pref.preset))),
             is_destroyed: Arc::new(RwLock::from(false)),
             is_event_listener_on: Arc::new(RwLock::from(true)),
             glob_instance: match self.self_instance.clone() {
@@ -871,6 +876,7 @@ impl QuickSocketInstance {
                 }
             },
             pref: pref.clone().to_std_pref(),
+            js_handler: handler,
         };
 
         setter(&mut channel);
@@ -1073,6 +1079,7 @@ impl QuickSocketInstance {
     pub fn create_udp_channel(
         &self,
         setter: fn(&mut UdpChannel),
+        handler: JsHandlerContainer,
         pref: UdpChannelCreatePreferences,
     ) -> Result<Arc<UdpChannel>, Box<dyn std::error::Error>> {
         let addr = "127.0.0.1:0";
@@ -1096,7 +1103,7 @@ impl QuickSocketInstance {
             registered_client: Arc::new(RwLock::from(vec![])),
             archived_client: Arc::new(RwLock::new(vec![])),
             port,
-            event_handlers: Arc::new(RwLock::from(HashMap::new())),
+            event_handlers: Arc::new(RwLock::from(manager(&pref.preset))),
             is_destroyed: Arc::new(RwLock::from(false)),
             is_event_listener_on: Arc::new(RwLock::from(true)),
             glob_instance: match self.self_instance.clone() {
@@ -1105,6 +1112,7 @@ impl QuickSocketInstance {
             }
             .clone(),
             pref: pref.clone().to_std_pref(),
+            js_handler: handler,
         };
 
         setter(&mut channel);

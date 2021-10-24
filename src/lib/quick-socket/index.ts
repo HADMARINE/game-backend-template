@@ -9,8 +9,8 @@ export default {
 
     return {
       port: res.port,
-      socketHandler: (data: Record<string, any>) =>
-        res.socketHandler(res.interface, data),
+      socketHandler: (event: string, data: Record<string, any>) =>
+        res.socketHandler(res.interface, event, data),
     };
   },
   createUdpChannel: (
@@ -21,8 +21,8 @@ export default {
 
     return {
       port: res.port,
-      socketHandler: (data: Record<string, any>) =>
-        res.socketHandler(res.interface, data),
+      socketHandler: (event: string, data: Record<string, any>) =>
+        res.socketHandler(res.interface, event, data),
     };
   },
 };
