@@ -77,23 +77,6 @@ export function Root(port = PORT): ReturnType<typeof ServerStarter> {
 
   const server = ServerStarter({ ...SERVER_STARTER_PROPERTIES, port });
 
-  // const tcp = socketHandler.createTcpChannel(
-  //   {
-  //     concurrent: false,
-  //     deleteClientWhenClosed: false,
-  //     preset: 'echo',
-  //   },
-  //   (e, v) => {
-  //     console.log(e, v);
-  //     switch (e) {
-  //       case 'echo':
-  //         console.log(e);
-  //         break;
-  //     }
-  //   },
-  // );
-  // console.log(tcp);
-
   const tcp = socketManager.createTcpChannel(
     {
       concurrent: false,
@@ -112,7 +95,7 @@ export function Root(port = PORT): ReturnType<typeof ServerStarter> {
 
   console.log(tcp);
 
-  tcp.socketHandler({ event: 'Hello', data: 'world' });
+  tcp.socketHandler('print', { event: 'print', data: 'world' });
 
   cron();
   io(server.server);

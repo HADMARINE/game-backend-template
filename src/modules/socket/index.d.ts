@@ -7,6 +7,7 @@ export interface JsInterface {
   port: number;
   socketHandler: (
     interface: BoxedJsInterface,
+    event: string,
     data: Record<string, any>,
   ) => void;
   interface: BoxedJsInterface;
@@ -14,7 +15,7 @@ export interface JsInterface {
 
 export interface WrappedJsInterface {
   port: number;
-  socketHandler: (data: Record<string, any>) => void;
+  socketHandler: (event: string, data: Record<string, any>) => void;
 }
 
 export namespace ChannelCreatePreferences {
@@ -29,7 +30,6 @@ export namespace ChannelCreatePreferences {
     preset: string;
   }
 }
-
 
 export function createTcpChannel(
   pref: ChannelCreatePreferences.Tcp,
