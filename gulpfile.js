@@ -48,9 +48,7 @@ gulp.task('build_post', (done) => {
   done();
 });
 
-gulp.task('build', gulp.series(['build_pre', 'build_main', 'build_post']));
-
-gulp.task('compile', (done) => {
+gulp.task('compile_main', (done) => {
   const basePath = path.join(process.cwd(), 'src', 'modules');
   const paths = fs.readdirSync(path.join(basePath));
 
@@ -63,8 +61,7 @@ gulp.task('compile', (done) => {
       new Promise((res, rej) =>
         cmd.exec(
           `${process.platform === 'win32' && `powershell`}; cd ./${path.join(
-            'src',
-            'modules',
+            'mod_src',
             p,
           )}; yarn`,
           (e, stdout, stderr) => {
@@ -93,3 +90,27 @@ gulp.task('compile', (done) => {
       process.exit(1);
     });
 });
+
+gulp.task('compile_move', (done) => {
+  const basePath = path.join(process.cwd(), 'mod_src');
+  const paths = fs.readdirSync(path.join(basePath));
+
+  for (const p of paths) {
+    fs.renameSync(
+      path.join(basePath, p, 'pkg'),
+      path.join(process.cwd(), 'src', 'modules', p),
+    );
+  }
+
+  done();
+});
+
+gulp.task('compile', gulp.series(['compile_main', 'compile_move']));
+
+gulp.task(
+  'build',
+  gulp.series(['build_pre', 'compile', 'build_main', 'build_post']),
+);
+
+// TODO : make initserver command
+// gulp.task('initserver',)
