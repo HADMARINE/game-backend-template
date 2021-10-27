@@ -41,7 +41,7 @@ gulp.task('build_post', (done) => {
 
   fs.writeFileSync(indexFileRoot, newIndexFile);
 
-  fs.rmdir(path.join(tsProject.options.outDir, '/__tests__'), {
+  fs.rmdirSync(path.join(tsProject.options.outDir, '/__tests__'), {
     recursive: true,
   });
 
@@ -49,7 +49,7 @@ gulp.task('build_post', (done) => {
 });
 
 gulp.task('compile_main', (done) => {
-  const basePath = path.join(process.cwd(), 'src', 'modules');
+  const basePath = path.join(process.cwd(), 'mod_src');
   const paths = fs.readdirSync(path.join(basePath));
 
   const executes = [];
@@ -57,16 +57,27 @@ gulp.task('compile_main', (done) => {
     if (p[0] == '_') {
       continue;
     }
+
+    const fileList = fs.readdirSync(path.join(basePath, p));
+    if (fileList.findIndex((value) => value === 'package.json') === -1) {
+      logger.debug(`Root ${p} is invalid environment, skipping...`);
+      continue;
+    }
+
     executes.push(
       new Promise((res, rej) =>
         cmd.exec(
-          `${process.platform === 'win32' && `powershell`}; cd ./${path.join(
+          `${process.platform === 'win32' && `powershell`}; cd ${path.join(
+            process.cwd(),
             'mod_src',
             p,
           )}; yarn`,
           (e, stdout, stderr) => {
             const _logger = logger.customName(p);
-            if (stderr.search('Finished') !== -1) {
+            if (
+              stderr.search('Finished') !== -1 ||
+              stdout.search('success') !== -1
+            ) {
               _logger.success(stderr);
               res();
             } else {
@@ -88,6 +99,7 @@ gulp.task('compile_main', (done) => {
     .catch((e) => {
       logger.debug(e);
       process.exit(1);
+      done();
     });
 });
 
@@ -95,7 +107,14 @@ gulp.task('compile_move', (done) => {
   const basePath = path.join(process.cwd(), 'mod_src');
   const paths = fs.readdirSync(path.join(basePath));
 
+  if (!fs.existsSync(path.join(process.cwd(), 'src', 'modules'))) {
+    fs.mkdirSync(path.join(process.cwd(), 'src', 'modules'));
+  }
+
   for (const p of paths) {
+    if (p[0] === '_') {
+      continue;
+    }
     fs.renameSync(
       path.join(basePath, p, 'pkg'),
       path.join(process.cwd(), 'src', 'modules', p),
@@ -105,7 +124,7 @@ gulp.task('compile_move', (done) => {
   done();
 });
 
-gulp.task('compile', gulp.series(['compile_main', 'compile_move']));
+gulp.task('compile', gulp.series(['compile_main']));
 
 gulp.task(
   'build',
