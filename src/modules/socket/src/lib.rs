@@ -42,30 +42,13 @@ fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
 
     drop(write_locked);
 
-    let interface = js_interface::JsInterface::new(
-        match match channel.clone().instance.read() {
-            Ok(v) => v,
-            Err(_) => return Err(cx.throw_error("instance init invalid")?),
-        }
-        .local_addr()
-        {
-            Ok(v) => v,
-            Err(_) => return Err(cx.throw_error("instance init invalid")?),
-        },
-        channel,
-        None,
-    );
-
     let return_object = cx.empty_object();
 
-    let port_value = cx.number(interface.addr.port());
+    let port_value = cx.number(channel.port);
     return_object.set(&mut cx, "port", port_value)?;
 
-    let socket_handler_value = JsFunction::new(&mut cx, js_interface::socket_data_handler)?;
-    return_object.set(&mut cx, "socketHandler", socket_handler_value)?;
-
-    let boxed_interface = js_interface::JsInterface::to_js_box(&mut cx, interface);
-    return_object.set(&mut cx, "interface", boxed_interface)?;
+    let uuid_value = cx.string(channel.channel_id.clone());
+    return_object.set(&mut cx, "uuid", uuid_value);
 
     Ok(return_object)
 }
@@ -90,37 +73,26 @@ fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
 
     drop(write_locked);
 
-    let interface = js_interface::JsInterface::new(
-        match match channel.clone().instance.read() {
-            Ok(v) => v,
-            Err(_) => return Err(cx.throw_error("instance init invalid")?),
-        }
-        .local_addr()
-        {
-            Ok(v) => v,
-            Err(_) => return Err(cx.throw_error("instance init invalid")?),
-        },
-        channel,
-        None,
-    );
-
     let return_object = cx.empty_object();
 
-    let port_value = cx.number(interface.addr.port());
+    let port_value = cx.number(channel.port);
     return_object.set(&mut cx, "port", port_value)?;
 
-    let socket_handler_value = JsFunction::new(&mut cx, js_interface::socket_data_handler)?;
-    return_object.set(&mut cx, "socket_handler", socket_handler_value)?;
-
-    let boxed_interface = js_interface::JsInterface::to_js_box(&mut cx, interface);
-    return_object.set(&mut cx, "interface", boxed_interface)?;
+    let uuid_value = cx.string(channel.channel_id.clone());
+    return_object.set(&mut cx, "uuid", uuid_value);
 
     Ok(return_object)
 }
+
+fn event_handler_rs(mut cx: FunctionContext) -> JsResult<JsUndefined> {}
+
+fn set_js_event_handler(mut cx: FunctionContext) -> JsResult<JsUndefined> {}
 
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("createTcpChannel", create_tcp_channel)?;
     cx.export_function("createUdpChannel", create_udp_channel)?;
+    cx.export_function("eventHandler", event_handler_rs)?;
+
     Ok(())
 }
