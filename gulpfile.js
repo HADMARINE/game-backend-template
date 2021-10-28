@@ -73,8 +73,8 @@ gulp.task('compile', (done) => {
           )}; yarn`,
           (e, stdout, stderr) => {
             const _logger = logger.customName(p);
-            if (stderr.search('Finished') !== -1) {
-              _logger.success(stderr);
+            if (stderr.search('Finished') !== -1 || e === null) {
+              _logger.success('Success!');
               res();
             } else {
               _logger.debug(e, false);
@@ -99,7 +99,10 @@ gulp.task('compile', (done) => {
 });
 
 gulp.task('init-game-server', (done) => {
-  const a = process.argv[process.argv.indexOf('--name') + 1] || 'game-server';
+  const a =
+    process.argv.indexOf('--name') === -1
+      ? 'game-server'
+      : process.argv[process.argv.indexOf('--name') + 1] || 'game-server';
 
   if (!fs.existsSync(path.join(process.cwd(), 'tmp'))) {
     fs.mkdirSync(path.join(process.cwd(), 'tmp'));
@@ -113,34 +116,36 @@ gulp.task('init-game-server', (done) => {
   const file = fs.createWriteStream(
     path.join(process.cwd(), 'tmp', 'releases', game_server_name),
   );
-  const req = request(
-    {
-      url: 'https://codeload.github.com/HADMARINE/quick-socket-server/tar.gz/master',
-    },
-    function (e, r, body) {
-      file.write(body);
-    },
+  const req = new Promise((pRes, pRej) =>
+    https.get(
+      'https://codeload.github.com/HADMARINE/quick-socket-server/tar.gz/master',
+      function (res) {
+        res.pipe(file).on('close', () => {
+          pRes();
+        });
+      },
+    ),
   );
-
-  if (!fs.existsSync(path.join(process.cwd(), 'src', 'modules', a))) {
-    fs.mkdirSync(path.join(process.cwd(), 'src', 'modules', a));
-  }
-
-  tar
-    .x({
-      f: path.join(process.cwd(), 'tmp', 'releases', 'game-server.tar.gz'),
-      C: path.join(process.cwd(), 'tmp', 'releases'),
-    })
-    .then(() => {
-      fs.renameSync(
-        path.join(
-          process.cwd(),
-          'tmp',
-          'releases',
-          'quick-socket-server-master',
-        ),
-        path.join(process.cwd(), 'src', 'modules', a),
-      );
-      done();
-    });
+  req.then(() => {
+    tar
+      .x({
+        f: path.join(process.cwd(), 'tmp', 'releases', game_server_name),
+        C: path.join(process.cwd(), 'tmp', 'releases'),
+      })
+      .then(() => {
+        fs.renameSync(
+          path.join(
+            process.cwd(),
+            'tmp',
+            'releases',
+            'quick-socket-server-master',
+          ),
+          path.join(process.cwd(), 'src', 'modules', a),
+        );
+        fs.rmSync(
+          path.join(process.cwd(), 'tmp', 'releases', game_server_name),
+        );
+        done();
+      });
+  });
 });
