@@ -56,6 +56,13 @@ gulp.task('build', gulp.series(['build_pre', 'build_main', 'build_post']));
 
 gulp.task('compile', (done) => {
   const basePath = path.join(process.cwd(), 'src', 'modules');
+
+  if (!fs.existsSync(basePath)) {
+    logger.info('Nothing to build!');
+    done();
+    process.exit(0);
+  }
+
   const paths = fs.readdirSync(path.join(basePath));
 
   logger.info('The compilation would take long on first, sit back and relax!');
@@ -135,6 +142,10 @@ gulp.task('init-game-server', (done) => {
         C: path.join(process.cwd(), 'tmp', 'releases'),
       })
       .then(() => {
+        if (!fs.existsSync(path.join(process.cwd(), 'src', 'modules'))) {
+          fs.mkdirSync(path.join(process.cwd(), 'src', 'modules'));
+        }
+
         fs.renameSync(
           path.join(
             process.cwd(),
