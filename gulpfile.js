@@ -1,3 +1,5 @@
+const https = require('https');
+const request = require('request');
 const fs = require('fs');
 const path = require('path');
 const gulp = require('gulp');
@@ -6,6 +8,8 @@ const ts = require('gulp-typescript');
 const cmd = require('child_process');
 const tsProject = ts.createProject('tsconfig.json');
 const logger = require('clear-logger').default;
+const util = require('util');
+const tar = require('tar');
 
 gulp.task('build_pre', (done) => {
   if (fs.existsSync(tsProject.options.outDir)) {
@@ -54,6 +58,8 @@ gulp.task('compile', (done) => {
   const basePath = path.join(process.cwd(), 'src', 'modules');
   const paths = fs.readdirSync(path.join(basePath));
 
+  logger.info('The compilation would take long on first, sit back and relax!');
+
   const executes = [];
   for (const p of paths) {
     if (p[0] == '_') {
@@ -69,8 +75,8 @@ gulp.task('compile', (done) => {
           )}; yarn`,
           (e, stdout, stderr) => {
             const _logger = logger.customName(p);
-            if (stderr.search('Finished') !== -1) {
-              _logger.success(stderr);
+            if (stderr.search('Finished') !== -1 || e === null) {
+              _logger.success('Success!');
               res();
             } else {
               _logger.debug(e, false);
@@ -92,4 +98,56 @@ gulp.task('compile', (done) => {
       logger.debug(e);
       process.exit(1);
     });
+});
+
+gulp.task('init-game-server', (done) => {
+  const a =
+    process.argv.indexOf('--name') === -1
+      ? 'game-server'
+      : process.argv[process.argv.indexOf('--name') + 1] || 'game-server';
+
+  if (!fs.existsSync(path.join(process.cwd(), 'tmp'))) {
+    fs.mkdirSync(path.join(process.cwd(), 'tmp'));
+  }
+  if (!fs.existsSync(path.join(process.cwd(), 'tmp', 'releases'))) {
+    fs.mkdirSync(path.join(process.cwd(), 'tmp', 'releases'));
+  }
+
+  const game_server_name = `game_server_${Date.now()}.tar.gz`;
+
+  const file = fs.createWriteStream(
+    path.join(process.cwd(), 'tmp', 'releases', game_server_name),
+  );
+  const req = new Promise((pRes, pRej) =>
+    https.get(
+      'https://codeload.github.com/HADMARINE/quick-socket-server/tar.gz/master',
+      function (res) {
+        res.pipe(file).on('close', () => {
+          pRes();
+        });
+      },
+    ),
+  );
+  req.then(() => {
+    tar
+      .x({
+        f: path.join(process.cwd(), 'tmp', 'releases', game_server_name),
+        C: path.join(process.cwd(), 'tmp', 'releases'),
+      })
+      .then(() => {
+        fs.renameSync(
+          path.join(
+            process.cwd(),
+            'tmp',
+            'releases',
+            'quick-socket-server-master',
+          ),
+          path.join(process.cwd(), 'src', 'modules', a),
+        );
+        fs.rmSync(
+          path.join(process.cwd(), 'tmp', 'releases', game_server_name),
+        );
+        done();
+      });
+  });
 });
