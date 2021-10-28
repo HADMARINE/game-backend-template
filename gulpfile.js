@@ -58,6 +58,8 @@ gulp.task('compile', (done) => {
   const basePath = path.join(process.cwd(), 'src', 'modules');
   const paths = fs.readdirSync(path.join(basePath));
 
+  logger.info('The compilation would take long on first, sit back and relax!');
+
   const executes = [];
   for (const p of paths) {
     if (p[0] == '_') {
