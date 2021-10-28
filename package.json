@@ -14,7 +14,8 @@
     "test-auto": "cross-env NODE_ENV=test jest --config ./jest.config.js",
     "d-build": "docker build . -t ",
     "compile": "gulp compile",
-    "install": "npm run compile"
+    "install": "npm run compile",
+    "initserver": "gulp init-game-server --name "
   },
   "dependencies": {
     "@babel/runtime": "^7.14.8",
