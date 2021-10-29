@@ -16,11 +16,12 @@ use socket_instance::{
     QuickSocketInstance, TcpChannelCreatePreferences, UdpChannelCreatePreferences,
 };
 
-use crate::error::predeclared::QuickSocketError;
-
 lazy_static::lazy_static! {
-    static ref INSTANCE: Arc<RwLock<QuickSocketInstance>> = QuickSocketInstance::new();
+    pub static ref INSTANCE: Arc<RwLock<QuickSocketInstance>> = QuickSocketInstance::new();
 }
+
+pub static EVENT_HANDLER_JS: Option<JsFunction> = None;
+pub static mut CX: Option<FunctionContext> = None;
 
 fn create_tcp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
     let arg0 = cx.argument(0)?;
@@ -84,15 +85,24 @@ fn create_udp_channel(mut cx: FunctionContext) -> JsResult<JsObject> {
     Ok(return_object)
 }
 
-fn event_handler_rs(mut cx: FunctionContext) -> JsResult<JsUndefined> {}
+fn event_handler_rs(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+    let event: Handle<JsString> = cx.argument(0)?;
+    let data: Handle<JsObject> = cx.argument(1)?;
+    app::bridge::resolver(&mut cx, event, data)
+}
 
-fn set_js_event_handler(mut cx: FunctionContext) -> JsResult<JsUndefined> {}
+fn set_js_event_handler(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+    let js_fn: Handle<JsFunction> = cx.argument(0)?;
+    EVENT_HANDLER_JS = Some(*js_fn);
+    unsafe { CX = Some(cx) };
+    Ok(cx.undefined())
+}
 
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("createTcpChannel", create_tcp_channel)?;
     cx.export_function("createUdpChannel", create_udp_channel)?;
     cx.export_function("eventHandler", event_handler_rs)?;
-
+    cx.export_function("setJsEventHandler", set_js_event_handler)?;
     Ok(())
 }

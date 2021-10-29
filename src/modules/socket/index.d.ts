@@ -3,14 +3,20 @@ export type JsHandlerFunction = (
   event: string,
   data: Record<string, any>,
 ) => void;
-export interface JsInterface {
+
+// export interface JsInterface {
+//   port: number;
+//   socketHandler: (
+//     interface: BoxedJsInterface,
+//     event: string,
+//     data: Record<string, any>,
+//   ) => void;
+//   interface: BoxedJsInterface;
+// }
+
+export interface ChannelCreateResult {
   port: number;
-  socketHandler: (
-    interface: BoxedJsInterface,
-    event: string,
-    data: Record<string, any>,
-  ) => void;
-  interface: BoxedJsInterface;
+  uuid: string;
 }
 
 export interface WrappedJsInterface {
@@ -34,8 +40,8 @@ export namespace ChannelCreatePreferences {
 export function createTcpChannel(
   pref: ChannelCreatePreferences.Tcp,
   handler: JsHandlerFunction,
-): JsInterface;
+): ChannelCreateResult;
 export function createUdpChannel(
   pref: ChannelCreatePreferences.Udp,
   handler: JsHandlerFunction,
-): JsInterface;
+): ChannelCreateResult;
