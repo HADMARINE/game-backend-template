@@ -1,6 +1,5 @@
 use crate::app::event::manager;
 use crate::error::predeclared::QuickSocketError;
-use crate::js_interface::{JsHandlerContainer, JsInterface};
 use json::{object, JsonValue};
 use neon::prelude::{FunctionContext, Handle, JsBoolean, JsObject, JsString, Object};
 use std::cell::RefCell;

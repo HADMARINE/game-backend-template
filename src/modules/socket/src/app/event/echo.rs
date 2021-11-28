@@ -4,7 +4,6 @@ use json::JsonValue;
 
 use crate::{
     error::predeclared::QuickSocketError,
-    js_interface::JsInterface,
     socket_instance::{event::ResponseStatus, ChannelController},
 };
 
