@@ -15,7 +15,7 @@
     "d-build": "docker build . -t ",
     "compile": "gulp compile",
     "install": "npm run compile",
-    "initserver": "gulp init-game-server --name "
+    "init-server": "gulp init-game-server --name "
   },
   "dependencies": {
     "@babel/runtime": "^7.14.8",
