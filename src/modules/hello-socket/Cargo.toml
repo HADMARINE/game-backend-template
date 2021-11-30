@@ -1,0 +1,28 @@
+[package]
+name = "quick-socket"
+version = "0.1.0"
+description = "socket connection implemented with rust"
+license = "Apache-2.0"
+edition = "2018"
+exclude = ["index.node"]
+
+[lib]
+crate-type = ["cdylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = {version="1", features=["full"]}
+tracing = {version = "0.1.28"}
+rand = "0.8.4"
+futures = {version = "0.3.17"}
+json = "0.12.4"
+uuid = {version = "0.8.2", features = ["v4","v5"]}
+tungstenite = "0.15.0"
+log = "0.4"
+lazy_static = "1.4.0"
+
+[dependencies.neon]
+version = "0.9.1"
+default-features = false
+features = ["napi-6", "channel-api"]

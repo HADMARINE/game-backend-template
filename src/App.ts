@@ -16,6 +16,7 @@ import { RateLimiter } from '@util/Middleware';
 import fileUploader from 'express-fileupload';
 import express from 'express';
 import packageJson from '../package.json';
+import rustSocket from './modules/hello-socket';
 
 const PORT: number = parseInt(
   process.env.NODE_ENV === 'production'
@@ -71,9 +72,24 @@ const SERVER_STARTER_PROPERTIES = {
 };
 
 export function Root(port = PORT): ReturnType<typeof ServerStarter> {
-  wrapConnectDbWithSync();
+  // wrapConnectDbWithSync();
 
   const server = ServerStarter({ ...SERVER_STARTER_PROPERTIES, port });
+
+  // rustSocket.createTcpChannel({
+  //   concurrent: true,
+  //   deleteClientWhenClosed: true,
+  //   preset: 'echo',
+  // });
+
+  rustSocket.eventHandler(
+    'print',
+    JSON.stringify({ message: 'hello, world!' }),
+  );
+
+  rustSocket.setJsEventHandler(function (e, d) {
+    console.log(`event:${e}, data:${d}`);
+  });
 
   cron();
   io(server.server);
