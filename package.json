@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.14.8",
-    "aws-sdk": "^2.1002.0",
+    "aws-sdk": "^2.1092.0",
     "chalk": "^4.1.1",
     "clear-logger": "1.0.7",
     "compression": "^1.7.4",
