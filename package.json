@@ -43,7 +43,7 @@
     "portfinder": "^1.0.28",
     "quickcert": "^1.1.2",
     "socket.io": "^4.1.3",
-    "tunnel-ssh": "^4.1.4"
+    "tunnel-ssh": "^5.0.4"
   },
   "devDependencies": {
     "@babel/cli": "^7.14.8",
